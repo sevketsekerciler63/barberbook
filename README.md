@@ -91,3 +91,7 @@ flutter build apk --debug --target-platform android-arm64,android-x64 --split-pe
 ## Nasıl geliştirdim
 
 Bu uygulamayı yapay zekâ asistanlarıyla birlikte yazdım. Neyin yapılacağına ve neyin kapsam dışı kalacağına (çevrim içi rezervasyon, online ödeme, çoklu işletme yok) ben karar verdim, kodun çoğunu asistan yazdı. Her değişiklikten sonra testler ve analiz çalıştırıldı; fiziksel cihaz ve işletme kabulünün yerini tutmadıkları yukarıda yazıyor.
+
+## Lisans
+
+Tüm hakları saklıdır. Kaynak kod yalnızca inceleme amacıyla herkese açıktır; kullanım lisansı verilmemiştir.

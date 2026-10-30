@@ -1,0 +1,152 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:alarm/alarm.dart';
+import 'package:alarm/utils/alarm_set.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import '../models/appointment.dart';
+import '../services/database_service.dart';
+import '../screens/alarm_screen.dart';
+import '../main.dart';
+
+class NotificationService {
+  static final NotificationService instance = NotificationService._init();
+  NotificationService._init();
+
+  VoidCallback? onAlarmFinished;
+
+  StreamSubscription<AlarmSet>? _ringSubscription;
+  final Set<int> _handledRingingIds = <int>{};
+
+  bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  Future<void> initialize() async {
+    if (!_isMobile) return;
+
+    // Alarm.init() is already called in main.dart
+
+    // Listen to the alarm ring stream
+    _ringSubscription?.cancel();
+    _ringSubscription = Alarm.ringing.listen((ringing) async {
+      final currentIds = ringing.alarms.map((alarm) => alarm.id).toSet();
+      _handledRingingIds.removeWhere((id) => !currentIds.contains(id));
+      for (final alarmSettings in ringing.alarms) {
+        if (_handledRingingIds.add(alarmSettings.id)) {
+          await _handleAlarmRing(alarmSettings.id);
+        }
+      }
+    });
+  }
+
+  Future<void> _handleAlarmRing(int id) async {
+    debugPrint('ALARM RINGING: $id');
+    final appointment = await DatabaseService.instance.getAppointmentById(id);
+    if (appointment != null) {
+      final paymentEnabled = await DatabaseService.instance.isPaymentEnabled();
+      int retries = 0;
+      while (globalNavigatorKey.currentContext == null && retries < 20) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        retries++;
+      }
+
+      if (globalNavigatorKey.currentContext != null) {
+        Navigator.of(globalNavigatorKey.currentContext!).push(
+          MaterialPageRoute(
+            builder: (_) => AlarmScreen(
+              appointment: appointment,
+              paymentEnabled: paymentEnabled,
+            ),
+            fullscreenDialog: true,
+          ),
+        );
+      } else {
+        debugPrint(
+          'Failed to push AlarmScreen: context is still null after 2 seconds.',
+        );
+      }
+    }
+  }
+
+  /// Schedule an alarm for an appointment
+  Future<void> scheduleAlarm(Appointment appointment) async {
+    if (appointment.id == null) return;
+    if (!appointment.shouldHaveAlarm) return;
+
+    final scheduledDate = appointment.fullDateTime;
+    if (scheduledDate.isBefore(DateTime.now())) return;
+
+    if (_isMobile) {
+      await _scheduleMobileAlarm(appointment, scheduledDate);
+    }
+  }
+
+  Future<void> _scheduleMobileAlarm(
+    Appointment appointment,
+    DateTime scheduledDate,
+  ) async {
+    final alarmSettings = AlarmSettings(
+      id: appointment.id!,
+      dateTime: scheduledDate,
+      assetAudioPath: 'assets/sounds/alarm.wav',
+      loopAudio: true,
+      vibrate: true,
+      volumeSettings: const VolumeSettings.fixed(
+        volume: null,
+        volumeEnforced: true,
+      ),
+      notificationSettings: NotificationSettings(
+        title: 'RANDEVU VAKTİ! ✂️',
+        body:
+            '${appointment.customerName} - ${appointment.hairstyleName ?? "Randevu"}',
+      ),
+      androidFullScreenIntent: true,
+    );
+
+    try {
+      await Alarm.set(alarmSettings: alarmSettings);
+      debugPrint('Alarm scheduled for: $scheduledDate');
+    } catch (e) {
+      debugPrint('Error scheduling alarm: $e');
+    }
+  }
+
+  /// Cancel a scheduled alarm
+  Future<void> cancelAlarm(int appointmentId) async {
+    if (_isMobile) {
+      try {
+        await Alarm.stop(appointmentId);
+      } catch (e) {
+        debugPrint(
+          'Warning: Failed to cancel alarm $appointmentId natively. Ignoring to prevent app crash. Error: $e',
+        );
+      }
+    }
+  }
+
+  /// Cancel all scheduled alarms
+  Future<void> cancelAllAlarms() async {
+    if (_isMobile) {
+      try {
+        await Alarm.stopAll();
+      } catch (e) {
+        debugPrint(
+          'Warning: Failed to cancel all alarms natively. Ignoring. Error: $e',
+        );
+      }
+    }
+  }
+
+  // To keep compatibility with AlarmScreen
+  void startAlarmVibration() {
+    // alarm package naturally handles ringing and vibration when it rings.
+    // If you need programmatic vibration here, you can place it, but usually not needed.
+  }
+
+  void stopAlarmVibration() {
+    // Handled by cancelAlarm(id) which calls Alarm.stop(id)
+  }
+
+  void dispose() {
+    _ringSubscription?.cancel();
+  }
+}

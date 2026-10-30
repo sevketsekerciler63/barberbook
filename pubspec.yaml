@@ -1,0 +1,51 @@
+name: berber_randevu
+description: "BarberBook - Berber Randevu Takip Uygulaması"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  sqflite: ^2.4.2
+  path: ^1.9.1
+  alarm: ^5.0.3
+  google_fonts: ^6.2.1
+  intl: ^0.20.2
+  table_calendar: ^3.2.0
+  flutter_slidable: ^3.1.1
+  url_launcher: ^6.3.1
+  audioplayers: ^6.6.0
+  sqflite_common_ffi: ^2.3.4+4
+  sqlite3_flutter_libs: ^0.5.28
+  permission_handler: ^11.3.1
+  flutter_localizations:
+    sdk: flutter
+  shared_preferences: ^2.5.5
+  crypto: ^3.0.7
+  archive: ^4.0.9
+  file_picker: ^11.0.3
+  share_plus: ^12.0.2
+  image_picker: ^1.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/hairstyles/
+    - assets/sounds/
+    - assets/app_icon.png
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/app_icon.png"

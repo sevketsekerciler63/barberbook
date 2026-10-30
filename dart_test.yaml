@@ -1,0 +1,3 @@
+# SQLite integration tests share DatabaseService.instance and its app database path.
+# Running them serially prevents one test file from closing/replacing another file's database.
+concurrency: 1

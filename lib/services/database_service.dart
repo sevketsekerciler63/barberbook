@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'restore_file_transaction.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../services/customer_photo_storage.dart';
@@ -14,23 +16,82 @@ import '../models/receivable.dart';
 
 class DatabaseService {
   static Database? _database;
+  Future<Database>? _opening;
+  Future<void>? _maintenance;
+  int _dataRevision = 0;
+  int get dataRevision => _dataRevision;
   static final DatabaseService instance = DatabaseService._init();
 
   DatabaseService._init();
 
   Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDB('barberbook.db');
-    return _database!;
+    while (true) {
+      final maintenance = _maintenance;
+      if (maintenance != null) {
+        await maintenance;
+        continue;
+      }
+      final db = await _openShared();
+      if (_maintenance == null && db.isOpen) return db;
+    }
   }
 
-  Future<void> closeDatabase() async {
+  Future<Database> _openShared() async {
+    if (_database?.isOpen == true) return _database!;
+    _database = null;
+    final opening = _opening ??= _initDB('barberbook.db');
+    try {
+      final db = await opening;
+      _database = db;
+      return db;
+    } finally {
+      if (identical(_opening, opening)) _opening = null;
+    }
+  }
+
+  Future<void> _closeShared() async {
+    final opening = _opening;
+    if (opening != null) await opening;
     await _database?.close();
     _database = null;
   }
 
+  Future<void> closeDatabase() async {
+    while (_maintenance != null) {
+      await _maintenance;
+    }
+    await _closeShared();
+  }
+
+  /// Blocks new connections while a closed DB snapshot or file swap is in use.
+  Future<T> withMaintenance<T>(
+    Future<T> Function(DatabaseMaintenance) action,
+  ) async {
+    final previous = _maintenance;
+    final done = Completer<void>();
+    _maintenance = done.future;
+    final access = DatabaseMaintenance._(
+      _openShared,
+      _closeShared,
+      () => _dataRevision++,
+    );
+    try {
+      if (previous != null) await previous;
+      await _closeShared();
+      await RestoreFileTransaction.recoverBeforeOpening(
+        await getDatabasesPath(),
+      );
+      return await action(access);
+    } finally {
+      access._active = false;
+      if (identical(_maintenance, done.future)) _maintenance = null;
+      done.complete();
+    }
+  }
+
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
+    await RestoreFileTransaction.recoverBeforeOpening(dbPath);
     final path = join(dbPath, filePath);
 
     final db = await openDatabase(
@@ -1281,5 +1342,32 @@ class DatabaseService {
       appointments.where((appointment) => appointment.id != excludeId),
       capacity: capacity,
     );
+  }
+}
+
+/// A scoped connection capability valid only inside withMaintenance.
+class DatabaseMaintenance {
+  DatabaseMaintenance._(this._open, this._close, this._markReplaced);
+  final Future<Database> Function() _open;
+  final Future<void> Function() _close;
+  final void Function() _markReplaced;
+  bool _active = true;
+  void _check() {
+    if (!_active) throw StateError('Bakım işlemi tamamlandı.');
+  }
+
+  Future<Database> open() {
+    _check();
+    return _open();
+  }
+
+  Future<void> close() {
+    _check();
+    return _close();
+  }
+
+  void markReplaced() {
+    _check();
+    _markReplaced();
   }
 }

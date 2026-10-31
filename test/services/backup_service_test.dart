@@ -259,7 +259,12 @@ void main() {
     final customers = await restored.query('customers');
     expect(customers.single['photoPath'], isNull);
     expect(await restored.query('customer_photos'), isEmpty);
-    expect(await stalePhotosDirectory.exists(), isFalse);
+    // The replacement may retain an empty managed directory, never stale files.
+    expect(
+      await File(p.join(stalePhotosDirectory.path, 'stale.jpg')).exists(),
+      isFalse,
+    );
+    expect(await stalePhotosDirectory.list().toList(), isEmpty);
   });
 
   test('v7 backup missing transaction table is rejected', () async {

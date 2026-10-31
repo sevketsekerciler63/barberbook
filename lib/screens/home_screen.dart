@@ -204,12 +204,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _checkWhatsAppReminders() async {
-    if (!mounted || _reminderDialogOpen) return;
+    if (!mounted ||
+        _reminderDialogOpen ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     try {
       final pendingReminders = await WhatsAppService.instance
           .checkPendingReminders();
       if (pendingReminders.isEmpty) return;
-      if (!mounted || _reminderDialogOpen) return;
+      if (!mounted ||
+          _reminderDialogOpen ||
+          ModalRoute.of(context)?.isCurrent != true) {
+        return;
+      }
 
       // Show reminder dialog for the first pending one
       final reminder = pendingReminders.first;

@@ -2,7 +2,7 @@
 
 Tek bir berber dükkânının müşteri, randevu ve kasa kaydını telefonunda tutması için yazılmış Flutter uygulaması. Hesap ve sunucu yok, veriler cihazdaki SQLite veritabanında kalır.
 
-> **Bu, portföy sürümüdür.** Uygulamanın dükkâna teslim edilen sürümündeki lisans ve destek kodu (gömülü lisans anahtarı üreticisi ve destek telefonu) bu depodan çıkarıldı; geçmiş de sıfırdan başlıyor. Geri kalan her şey aynı çalışıyor. Gerçek bir dükkânda uzun süreli kullanım geri bildirimi henüz yok.
+> **Bu, portföy sürümüdür.** Uygulamanın dükkâna teslim edilen sürümündeki lisans ve destek kodu (gömülü lisans anahtarı üreticisi ve destek telefonu) bu depodan çıkarıldı; geçmiş de sıfırdan başlıyor. İşlevsel ekranlar ortaktır. Android portföy sürümü `com.barberbook.portfolio` kimliğiyle **BarberBook Demo** adı altında ayrı uygulama ve ayrı veri alanı kullanır. Gerçek bir dükkânda uzun süreli kullanım geri bildirimi henüz yok.
 
 [41 saniyelik kullanım videosu](docs/demo.mp4) — gerçek Android emülatör kaydı, kurgu veriler; 2× hızlandırılmış. Müşteri geçmişi, rapor ve kısmi veresiye tahsilatı gösterilir.
 
@@ -59,7 +59,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-10-31: 127 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-10-31: 141 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 ## Günlük kullanım
 
@@ -74,11 +74,11 @@ Tahsil edilmiş ödeme, randevu sonradan iptal edilse veya yeniden planlansa da 
 
 Alınmış ödeme ve veresiye ana kaydı yeniden yazılmaz. Ödenmiş randevu tekrar planlanıp tamamlandığında ilk tahsilat korunur; yeni ödeme penceresi açılmaz. İade/düzeltme defteri bu sürümün kapsamına dahil değildir.
 
-Yedek oluşturulunca, dosya geri yükleme kurallarıyla doğrulanır. Eksik fotoğraflarda işlem durur; isterseniz açık onayla yalnız dışa aktarılan kopyadaki eksik bağlantılar çıkarılır. Aynı seçim geri yükleme öncesi güvenlik yedeği için de sunulur. Cihazdaki asıl kayıtlar sırf yedek almak için değiştirilmez. Arşiv sınırı 10.000 girdi (DB/manifest dahil) ve 200 MB açılmış içeriktir; sınır aşımı başarı diye bildirilmez.
+Yedek oluşturulunca, dosya geri yükleme kurallarıyla doğrulanır. Veritabanı ve fotoğraf değişimi eski dosyalar korunarak kalıcı bir kurtarma kaydıyla yapılır; tamamlanmamış değişim bir sonraki veritabanı açılışından önce geri alınır. Yedekleme/geri yükleme sırasında normal yeni veri bağlantıları bekletilir. Eksik fotoğraflarda işlem durur; isterseniz açık onayla yalnız dışa aktarılan kopyadaki eksik bağlantılar çıkarılır. Aynı seçim geri yükleme öncesi güvenlik yedeği için de sunulur. Cihazdaki asıl kayıtlar sırf yedek almak için değiştirilmez. Arşiv sınırı 10.000 girdi (DB/manifest dahil) ve 200 MB açılmış içeriktir; sınır aşımı başarı diye bildirilmez.
 
 Normal randevu kaydında alarm kurulamazsa uyarı ve yeniden deneme sunulur. Aynı dakikadaki randevular, native paketin aynı saniyeyi değiştirme davranışı nedeniyle dakika içinde ayrı saniyelere dağıtılır; saat alanı dakika çözünürlüğündedir.
 
-[Mimari ve teknik kararlar](docs/architecture.md) · [Son düzeltmelerin doğrulaması](docs/followup-acceptance-2026-10-31.md)
+[Kesinti kurtarma tasarımı ve testleri](docs/recovery-2026-10-31.md) · [Mimari ve teknik kararlar](docs/architecture.md) · [Son düzeltmelerin doğrulaması](docs/followup-acceptance-2026-10-31.md)
 
 ## WhatsApp davranışı
 

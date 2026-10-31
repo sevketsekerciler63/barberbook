@@ -44,7 +44,9 @@ class NotificationService {
 
   Future<void> _handleAlarmRing(int id) async {
     debugPrint('ALARM RINGING: $id');
+    final revision = DatabaseService.instance.dataRevision;
     final appointment = await DatabaseService.instance.getAppointmentById(id);
+    if (revision != DatabaseService.instance.dataRevision) return;
     if (appointment == null || !appointment.shouldHaveAlarm) {
       await cancelAlarm(id);
       return;

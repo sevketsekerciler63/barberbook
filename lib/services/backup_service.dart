@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/backup_preview.dart';
 import 'database_service.dart';
+import 'restore_file_transaction.dart';
 
 class BackupService {
   static final BackupService instance = BackupService._();
@@ -45,15 +46,40 @@ class BackupService {
     return directory;
   }
 
+  Future<void> _cleanupStaging(Directory staging) async {
+    try {
+      if (!await staging.exists()) return;
+      final root = await Directory(
+        await getDatabasesPath(),
+      ).resolveSymbolicLinks();
+      final target = await staging.resolveSymbolicLinks();
+      if (!path.isWithin(root, target)) {
+        throw StateError('Güvensiz geçici yedek yolu.');
+      }
+      await staging.delete(recursive: true);
+    } on FileSystemException {
+      // Verified data/safety backups remain usable if a temp file is locked.
+    }
+  }
+
   Future<File> createBackup({bool omitMissingPhotos = false}) async {
+    return DatabaseService.instance.withMaintenance(
+      (access) => _createBackup(access, omitMissingPhotos: omitMissingPhotos),
+    );
+  }
+
+  Future<File> _createBackup(
+    DatabaseMaintenance access, {
+    bool omitMissingPhotos = false,
+  }) async {
     final staging = await _stagingDirectory('create');
     File? target;
-    await DatabaseService.instance.closeDatabase();
+    await access.close();
     try {
       final source = File(await _databasePath());
       if (!await source.exists()) {
-        await DatabaseService.instance.database;
-        await DatabaseService.instance.closeDatabase();
+        await access.open();
+        await access.close();
       }
       final snapshot = await source.copy(
         path.join(staging.path, 'barberbook.db'),
@@ -118,8 +144,8 @@ class BackupService {
       if (target != null && await target.exists()) await target.delete();
       rethrow;
     } finally {
-      if (await staging.exists()) await staging.delete(recursive: true);
-      await DatabaseService.instance.database;
+      await _cleanupStaging(staging);
+      await access.open();
     }
   }
 
@@ -242,7 +268,7 @@ class BackupService {
         await _validateDatabase(databaseFile);
         await _validateArchivePhotoReferences(databaseFile, archive.photos);
       } finally {
-        if (await staging.exists()) await staging.delete(recursive: true);
+        await _cleanupStaging(staging);
       }
       return;
     }
@@ -485,7 +511,7 @@ class BackupService {
       );
     } finally {
       await candidate?.close();
-      if (await staging.exists()) await staging.delete(recursive: true);
+      await _cleanupStaging(staging);
     }
   }
 
@@ -503,26 +529,45 @@ class BackupService {
     bool omitMissingSafetyPhotos = false,
   }) async {
     await validateBackup(backup);
-    final isArchive = await _isZip(backup);
-    final safetyBackup = await createBackup(
-      omitMissingPhotos: omitMissingSafetyPhotos,
-    );
-    await DatabaseService.instance.closeDatabase();
-    try {
-      await _restoreBackupContents(backup);
-      await DatabaseService.instance.database;
-      if (!isArchive) await _clearLegacyPhotoReferences();
-    } catch (_) {
-      await DatabaseService.instance.closeDatabase();
+    await DatabaseService.instance.withMaintenance((access) async {
+      await _createBackup(access, omitMissingPhotos: omitMissingSafetyPhotos);
+      await access.close();
+      final transaction = await RestoreFileTransaction.at(
+        await getDatabasesPath(),
+      );
+      Directory? staging;
       try {
-        await _restoreBackupContents(safetyBackup);
-        await DatabaseService.instance.database;
-      } catch (_) {
-        // The original restore error remains more useful to the caller.
+        final contents = await _stageRestoreContents(backup);
+        staging = contents.directory;
+        await transaction.install(
+          database: contents.database,
+          photos: contents.photos,
+        );
+        final db = await access.open();
+        final integrity = await db.rawQuery('PRAGMA integrity_check');
+        if (integrity.single.values.single != 'ok' ||
+            (await db.rawQuery('PRAGMA foreign_key_check')).isNotEmpty) {
+          throw StateError('Geri yüklenen veritabanı doğrulanamadı.');
+        }
+        await transaction.commit();
+        access.markReplaced();
+      } catch (error) {
+        await access.close();
+        try {
+          await transaction.recoverInterrupted();
+          await access.open();
+        } catch (_) {
+          throw StateError(
+            'Geri yükleme tamamlanamadı. Korunan dosyalar ve güvenlik yedeği saklandı; uygulamayı yeniden açarak kurtarmayı deneyin.',
+          );
+        }
+        rethrow;
+      } finally {
+        transaction.release();
+        if (staging != null) await _cleanupStaging(staging);
       }
-      rethrow;
-    }
-    // The data is already restored. An OS alarm failure must not roll it back.
+    });
+    // Native alarm synchronization can safely read the replacement after the gate opens.
     if (synchronizeAlarms != null) {
       try {
         await synchronizeAlarms();
@@ -535,78 +580,59 @@ class BackupService {
     );
   }
 
-  Future<void> _restoreBackupContents(File backup) async {
+  Future<({Directory directory, File database, Directory photos})>
+  _stageRestoreContents(File backup) async {
     final archive = await _isZip(backup) ? await _readArchive(backup) : null;
     final staging = await _stagingDirectory('restore');
     try {
-      final stagedDatabase = File(path.join(staging.path, 'barberbook.db'));
+      final database = File(path.join(staging.path, 'barberbook.db'));
+      final photos = Directory(path.join(staging.path, 'photos'));
+      await photos.create();
       if (archive == null) {
-        await backup.copy(stagedDatabase.path);
+        await backup.copy(database.path);
       } else {
-        await stagedDatabase.writeAsBytes(archive.databaseBytes, flush: true);
-        final stagedPhotos = Directory(path.join(staging.path, 'photos'));
-        await stagedPhotos.create(recursive: true);
+        await database.writeAsBytes(archive.databaseBytes, flush: true);
         for (final photo in archive.photos) {
           await File(
-            path.join(stagedPhotos.path, path.basename(photo.archivePath)),
+            path.join(photos.path, path.basename(photo.archivePath)),
           ).writeAsBytes(photo.bytes, flush: true);
         }
       }
-
-      final targetDatabase = File(await _databasePath());
-      // File.copy does not overwrite on Windows; remove the closed active DB
-      // before replacing it with the already validated restore candidate.
-      if (await targetDatabase.exists()) {
-        await targetDatabase.delete();
-      }
-      await stagedDatabase.copy(targetDatabase.path);
+      // Validate the actual staged bytes, not only the earlier preview/source.
+      await _validateDatabase(database);
       if (archive != null) {
-        final targetPhotos = await _photosDirectory();
-        if (await targetPhotos.exists()) {
-          await targetPhotos.delete(recursive: true);
-        }
-        await targetPhotos.create(recursive: true);
-        final stagedPhotos = Directory(path.join(staging.path, 'photos'));
-        await for (final photo in stagedPhotos.list()) {
-          if (photo is File) {
-            await photo.copy(
-              path.join(targetPhotos.path, path.basename(photo.path)),
-            );
-          }
-        }
+        await _validateArchivePhotoReferences(database, archive.photos);
         await _rewriteRestoredPhotoPaths(
-          targetDatabase,
-          targetPhotos,
+          database,
+          await _photosDirectory(),
           archive.photos,
         );
+      } else {
+        await _clearLegacyPhotoReferences(database);
       }
-    } finally {
-      if (await staging.exists()) await staging.delete(recursive: true);
+      return (directory: staging, database: database, photos: photos);
+    } catch (_) {
+      await _cleanupStaging(staging);
+      rethrow;
     }
   }
 
-  Future<void> _clearLegacyPhotoReferences() async {
-    final targetPhotos = await _photosDirectory();
-    if (await targetPhotos.exists()) {
-      await targetPhotos.delete(recursive: true);
+  Future<void> _clearLegacyPhotoReferences(File file) async {
+    final database = await openDatabase(file.path, singleInstance: false);
+    try {
+      await database.transaction((txn) async {
+        final columns = await txn.rawQuery('PRAGMA table_info(customers)');
+        if (columns.any((column) => column['name'] == 'photoPath')) {
+          await txn.update('customers', {'photoPath': null});
+        }
+        final tables = await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'customer_photos'",
+        );
+        if (tables.isNotEmpty) await txn.delete('customer_photos');
+      });
+    } finally {
+      await database.close();
     }
-
-    final database = await DatabaseService.instance.database;
-    await database.transaction((txn) async {
-      final customerColumns = await txn.rawQuery(
-        'PRAGMA table_info(customers)',
-      );
-      if (customerColumns.any((column) => column['name'] == 'photoPath')) {
-        await txn.update('customers', {'photoPath': null});
-      }
-
-      final tableRows = await txn.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'customer_photos'",
-      );
-      if (tableRows.isNotEmpty) {
-        await txn.delete('customer_photos');
-      }
-    });
   }
 
   Future<void> _rewriteRestoredPhotoPaths(

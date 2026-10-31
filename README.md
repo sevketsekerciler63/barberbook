@@ -4,6 +4,8 @@ Tek bir berber dükkânının müşteri, randevu ve kasa kaydını telefonunda t
 
 > **Bu, portföy sürümüdür.** Uygulamanın dükkâna teslim edilen sürümündeki lisans ve destek kodu (gömülü lisans anahtarı üreticisi ve destek telefonu) bu depodan çıkarıldı; geçmiş de sıfırdan başlıyor. Geri kalan her şey aynı çalışıyor. Gerçek bir dükkânda uzun süreli kullanım geri bildirimi henüz yok.
 
+[41 saniyelik kullanım videosu](docs/demo.mp4) — gerçek Android emülatör kaydı, kurgu veriler; 2× hızlandırılmış. Müşteri geçmişi, rapor ve kısmi veresiye tahsilatı gösterilir.
+
 ## Neyi çözüyor?
 
 Küçük bir berber dükkânı kâğıt defter ve telefon rehberiyle çalışıyor: kim ne zaman gelecek, kime ne kadar veresiye yazıldı, gün sonunda kasada ne olmalı. Uygulama bunları tek yerde tutuyor: randevu çakışmasını engelliyor, tamamlanan işte tahsilatı kaydediyor (nakit, kart, havale veya veresiye) ve veresiyeyi kısmi ya da tam tahsil edilebilir tutuyor.
@@ -87,6 +89,8 @@ Toplu kampanya ekranı kaldırıldı; müşteri bazlı manuel mesaj ve uygulama 
 - Uygulama verileri cihazdaki SQLite veritabanında tutulur.
 - Yeni yedekler uygulamanın yerel veritabanı alanındaki `backups` klasöründe `.zip` olarak tutulur; ZIP içinde SQLite veritabanı, fotoğraflar ve bütünlük bilgili bir manifest bulunur. Eski `.db` yedekleri fotoğraf içermeden doğrulanıp geri yüklenmeye devam eder. Geri yükleme öncesinde mevcut verinin otomatik güvenlik yedeği alınır.
 - WhatsApp özelliği otomatik mesaj göndermez; hazırlanmış mesajı WhatsApp uygulamasında açar.
+
+GitHub Actions, testlerden sonra ARM64 ve x86_64 debug APK üretir. Son başarılı çalıştırmanın **barberbook-demo-debug** artifact'ı 14 gün indirilebilir: [CI çalıştırmaları](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml).
 
 ## Android çıktısı
 

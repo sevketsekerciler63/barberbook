@@ -464,8 +464,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
                       onPressed: saving
                           ? null
                           : () async {
-                              if (saving || nameController.text.trim().isEmpty)
+                              if (saving || nameController.text.trim().isEmpty) {
                                 return;
+                              }
                               setModalState(() => saving = true);
                               try {
                                 final newName = nameController.text.trim();

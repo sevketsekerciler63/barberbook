@@ -113,11 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             content: const SingleChildScrollView(
               child: Text(
-                'Alarmların ekran kilitliyken veya kapalıyken bile %100 sorunsuz açılabilmesi ve yukardan bildirim gelmesi için ekstra izinler gerekiyor:\n\n'
-                '1. Bildirimler ve Tam Zamanlı Alarm (Saniyesi saniyesine ve üstten çıkarak çalabilmesi için).\n'
-                '2. Arka planda asla uyumaması için Pil Optimizasyonunu Kapatma.\n'
-                '3. Uygulamaların üstünde görünebilmesi için Diğer Uygulamalar Üzerinde Gösterme izni.\n\n'
-                'Lütfen yönlendirileceğiniz sayfalarda tüm izinleri verin.',
+                'Ekran kilitliyken veya uygulama arka plandayken randevu alarmı ve bildirim gösterebilmek için Android izinlerini düzenleyin. Telefonun güç yönetimi alarm davranışını etkileyebilir:\n\n'
+                '1. Bildirim ve tam zamanlı alarm izinleri.\n'
+                '2. Arka plan kısıtlamalarını azaltmak için pil optimizasyonu ayarı.\n'
+                '3. Alarm ekranı için diğer uygulamalar üzerinde gösterme izni.\n\n'
+                'Ayarları yaptıktan sonra kendi telefonunuzda bir deneme alarmı kurun.',
                 style: TextStyle(
                   color: AppColors.white,
                   height: 1.5,

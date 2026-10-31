@@ -1,3 +1,4 @@
+import '../services/customer_phone_service.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -403,15 +404,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
 
-    final Map<int, String> phones = {};
-    for (var a in appointments) {
-      if (a.customerId != null && !_customerPhones.containsKey(a.customerId)) {
-        final c = await _dbService.getCustomerById(a.customerId!);
-        if (c != null && c.phone != null && c.phone!.isNotEmpty) {
-          phones[a.customerId!] = c.phone!;
-        }
-      }
-    }
+    final phones = await CustomerPhoneService.load([
+      ...appointments,
+      ..._searchResults,
+    ]);
 
     appointments.sort((a, b) {
       if (a.isCompleted == b.isCompleted) {
@@ -428,7 +424,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ...collectionPayments,
         ]);
         _paymentEnabled = paymentEnabled;
-        _customerPhones.addAll(phones);
+        _customerPhones
+          ..clear()
+          ..addAll(phones);
         _isLoading = false;
       });
     }
@@ -624,20 +622,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final results = await _dbService.searchAppointments(query);
-    final Map<int, String> phones = {};
-    for (var a in results) {
-      if (a.customerId != null && !_customerPhones.containsKey(a.customerId)) {
-        final c = await _dbService.getCustomerById(a.customerId!);
-        if (c != null && c.phone != null && c.phone!.isNotEmpty) {
-          phones[a.customerId!] = c.phone!;
-        }
-      }
-    }
+    final phones = await CustomerPhoneService.load([
+      ...results,
+      ..._appointments,
+    ]);
 
     if (mounted) {
       setState(() {
         _searchResults = results;
-        _customerPhones.addAll(phones);
+        _customerPhones
+          ..clear()
+          ..addAll(phones);
       });
     }
   }

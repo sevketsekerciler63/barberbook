@@ -387,7 +387,7 @@ void main() {
   );
 
   test(
-    'cash summary uses paidAt and ignores non-completed appointments',
+    'collected cash follows paidAt and survives appointment status changes',
     () async {
       final db = await DatabaseService.instance.database;
       final appointmentId = await _insertAppointment(
@@ -418,16 +418,25 @@ void main() {
         isEmpty,
       );
 
-      await DatabaseService.instance.setAppointmentStatus(
-        appointmentId,
+      for (final status in [
         AppointmentStatus.cancelled,
-      );
-      expect(
-        await DatabaseService.instance.getPaymentsForDate(
+        AppointmentStatus.planned,
+      ]) {
+        await DatabaseService.instance.setAppointmentStatus(
+          appointmentId,
+          status,
+        );
+        final payments = await DatabaseService.instance.getPaymentsForDate(
           DateTime(2026, 9, 21),
-        ),
-        isEmpty,
-      );
+        );
+        final report = await DatabaseService.instance.getCashReport(
+          DateTime(2026, 9, 21),
+          DateTime(2026, 9, 21),
+        );
+        expect(payments, hasLength(1));
+        expect(payments.single.amountCents, report.collectedCents);
+        expect(report.collectedCents, 50000);
+      }
     },
   );
 }

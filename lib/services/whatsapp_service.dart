@@ -108,18 +108,6 @@ class WhatsAppService {
     return sent.contains('${appointmentId}_$type');
   }
 
-  /// Clean up old sent reminders (older than 7 days)
-  Future<void> cleanupOldReminders() async {
-    final prefs = await SharedPreferences.getInstance();
-    // Simple cleanup: just clear the list periodically if it gets too big
-    final list = prefs.getStringList(_keyHandledReminders) ?? [];
-    if (list.length > 500) {
-      // Keep only last 100
-      final trimmed = list.sublist(list.length - 100);
-      await prefs.setStringList(_keyHandledReminders, trimmed);
-    }
-  }
-
   // ==================== MESSAGE GENERATION ====================
 
   /// Generate the WhatsApp reminder message for an appointment
@@ -152,25 +140,6 @@ class WhatsAppService {
     message += '\nSizi bekliyoruz! 😊';
 
     return message;
-  }
-
-  /// Generate a custom message with replaceable placeholders
-  String generateCustomMessage({
-    required String template,
-    required Appointment appointment,
-    required String businessName,
-  }) {
-    final date =
-        '${appointment.appointmentDate.day.toString().padLeft(2, '0')}/'
-        '${appointment.appointmentDate.month.toString().padLeft(2, '0')}/'
-        '${appointment.appointmentDate.year}';
-
-    return template
-        .replaceAll('{isim}', appointment.customerName)
-        .replaceAll('{tarih}', date)
-        .replaceAll('{saat}', appointment.appointmentTime)
-        .replaceAll('{islem}', appointment.hairstyleName ?? 'Belirtilmedi')
-        .replaceAll('{dukkan}', businessName);
   }
 
   // ==================== WHATSAPP ACTIONS ====================

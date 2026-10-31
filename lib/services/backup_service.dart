@@ -427,7 +427,10 @@ class BackupService {
     return databaseFile;
   }
 
-  Future<void> restoreBackup(File backup) async {
+  Future<BackupRestoreResult> restoreBackup(
+    File backup, {
+    Future<void> Function()? synchronizeAlarms,
+  }) async {
     await validateBackup(backup);
     final isArchive = await _isZip(backup);
     final safetyBackup = await createBackup();
@@ -446,6 +449,17 @@ class BackupService {
       }
       rethrow;
     }
+    // The data is already restored. An OS alarm failure must not roll it back.
+    if (synchronizeAlarms != null) {
+      try {
+        await synchronizeAlarms();
+      } catch (_) {
+        return const BackupRestoreResult(alarmsSynchronized: false);
+      }
+    }
+    return BackupRestoreResult(
+      alarmsSynchronized: synchronizeAlarms == null ? null : true,
+    );
   }
 
   Future<void> _restoreBackupContents(File backup) async {
@@ -601,4 +615,10 @@ class _PhotoEntry {
     'archivePath': archivePath,
     'sha256': sha256,
   };
+}
+
+class BackupRestoreResult {
+  /// Null when no device synchronization was requested (e.g. database-only use).
+  final bool? alarmsSynchronized;
+  const BackupRestoreResult({required this.alarmsSynchronized});
 }

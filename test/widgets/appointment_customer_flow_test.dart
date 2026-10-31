@@ -1,10 +1,12 @@
 import 'package:berber_randevu/models/customer.dart';
+import 'package:berber_randevu/models/appointment.dart';
 import 'package:berber_randevu/screens/add_appointment_screen.dart';
 import 'package:berber_randevu/services/database_service.dart';
 import 'package:berber_randevu/widgets/customer_search.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../test_helpers/database_test_isolation.dart';
@@ -28,6 +30,41 @@ void main() {
       await tester.pump();
     }
     await tester.pumpAndSettle();
+  }
+
+  for (final dayOffset in [-120, 730]) {
+    testWidgets(
+      'existing appointment date outside new-booking window remains editable: $dayOffset',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 1800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final date = DateTime.now().add(Duration(days: dayOffset));
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AddAppointmentScreen(
+              appointmentToEdit: Appointment(
+                id: 7,
+                customerName: 'Eski kayıt',
+                appointmentDate: date,
+                appointmentTime: '10:00',
+              ),
+            ),
+          ),
+        );
+        await settleDatabase(tester);
+        final dateButton = find.text(
+          DateFormat('d MMMM yyyy, EEEE', 'tr_TR').format(date),
+        );
+        await tester.ensureVisible(dateButton);
+        await tester.tap(dateButton);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.byType(DatePickerDialog), findsOneWidget);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 
   testWidgets('clearing the search reports an empty customer name', (
@@ -112,6 +149,8 @@ void main() {
       await tester.tap(find.text('Bitti'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('RANDEVU OLUŞTUR'));
+      await tester.tap(find.text('RANDEVU OLUŞTUR'));
+      // A second tap before the SQLite work completes must not create a duplicate.
       await tester.tap(find.text('RANDEVU OLUŞTUR'));
       await settleDatabase(tester);
       await tester.runAsync(() async {

@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/backup_preview.dart';
 import '../services/backup_service.dart';
+import '../services/notification_service.dart';
 import '../utils/constants.dart';
 
 class BackupScreen extends StatefulWidget {
@@ -126,11 +127,20 @@ class _BackupScreenState extends State<BackupScreen> {
     if (approved != true) return;
     setState(() => _busy = true);
     try {
-      await BackupService.instance.restoreBackup(file);
+      final result = await BackupService.instance.restoreBackup(
+        file,
+        synchronizeAlarms:
+            NotificationService.instance.synchronizeWithAppointments,
+      );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Yedek geri yüklendi.')));
+        final messenger = ScaffoldMessenger.of(context);
+        if (result.alarmsSynchronized == true) {
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Yedek geri yüklendi.')),
+          );
+        } else {
+          _showAlarmWarning(messenger);
+        }
         Navigator.of(context).pop(true);
       }
     } catch (error) {
@@ -141,6 +151,34 @@ class _BackupScreenState extends State<BackupScreen> {
         );
       }
     }
+  }
+
+  void _showAlarmWarning(ScaffoldMessengerState messenger) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text(
+          'Veriler geri yüklendi; randevu alarmları yeniden kurulamadı.',
+        ),
+        duration: const Duration(seconds: 15),
+        action: SnackBarAction(
+          label: 'Alarmları yeniden dene',
+          onPressed: () async {
+            try {
+              await NotificationService.instance.synchronizeWithAppointments();
+              if (messenger.mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Randevu alarmları güncellendi.'),
+                  ),
+                );
+              }
+            } catch (_) {
+              if (messenger.mounted) _showAlarmWarning(messenger);
+            }
+          },
+        ),
+      ),
+    );
   }
 
   String _label(File file) {

@@ -580,8 +580,7 @@ class DatabaseService {
     final rows = await db.rawQuery(
       '''
       SELECT p.* FROM payments p
-      INNER JOIN appointments a ON a.id = p.appointmentId
-      WHERE a.status = 'completed'
+      WHERE p.status = 'paid'
         AND p.paidAt >= ? AND p.paidAt < ?
       ORDER BY p.paidAt ASC
       ''',

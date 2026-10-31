@@ -57,7 +57,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-10-31: 98 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-10-31: 108 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 ## Günlük kullanım
 
@@ -66,11 +66,13 @@ flutter build apk --debug --target-platform android-x64 --split-per-abi
 3. Randevu tamamlanırken hizmet bedeli, indirim, bahşiş ve ödeme yöntemini girin. Hizmet tutarı = indirim öncesi bedel − indirim; bahşiş ayrıca kaydedilir.
 4. Veresiye seçimi kasaya tahsilat yazmaz. **Yönetim → Açık veresiyeler** üzerinden kısmi veya tam tahsilat ekleyin. Aynı listeye tahsilat raporundaki cüzdan simgesinden de ulaşılır.
 5. Veresiye kaydı sonradan ödeme formuyla değiştirilmez; tahsilatlar ayrı kasa hareketleri olarak tutulur. Rapor hizmet tahsilatını ve bahşişi ayrı gösterir; güncel veresiye seçilen rapor tarihinden bağımsızdır.
-6. Yedekleme menüsünden fotoğraflı ZIP yedeği oluşturup cihaz dışına paylaşın. Geri yüklemeden önce içerik doğrulanır ve mevcut verinin güvenlik yedeği alınır.
+6. Yedekleme menüsünden fotoğraflı ZIP yedeği oluşturup cihaz dışına paylaşın. Geri yüklemeden önce içerik doğrulanır ve mevcut verinin güvenlik yedeği alınır. Sonrasında eski cihaz alarmları temizlenir ve geri gelen gelecekteki planlı randevular için yeniden kurulur. Alarm kurulumu başarısız olursa veriler korunur ve alarmlar için yeniden deneme sunulur.
+
+Tahsil edilmiş ödeme, randevu sonradan iptal edilse veya yeniden planlansa da gerçek tahsilat gününün kasasında kalır; durum değiştirmek para iadesi oluşturmaz. Müşteri telefonu ana ekran ve aramada her yenilemede güncel kayıttan okunur.
 
 ## WhatsApp davranışı
 
-Hazır mesajın bağlantısı dış uygulamada açılır; mesajı göndermeyi kullanıcı tamamlar. Açma başarısızsa hatırlatma beklemede kalır. Başarılı bağlantı açma, mesajın gönderildiğini veya teslim edildiğini kanıtlamaz. WhatsApp hatırlatma kontrolü uygulama açıkken çalışır; yerel randevu alarmı ayrı bir özelliktir.
+Toplu kampanya ekranı kaldırıldı; müşteri bazlı manuel mesaj ve uygulama içi randevu hatırlatması korunur. Hazır mesajın bağlantısı dış uygulamada açılır; mesajı göndermeyi kullanıcı tamamlar. Açma başarısızsa hatırlatma beklemede kalır. Başarılı bağlantı açma, mesajın gönderildiğini veya teslim edildiğini kanıtlamaz. WhatsApp hatırlatma kontrolü uygulama açıkken çalışır; yerel randevu alarmı ayrı bir özelliktir.
 
 ## Veri ve güvenlik notları
 

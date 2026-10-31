@@ -38,6 +38,8 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
   late DateTime _selectedDate;
   TimeOfDay? _selectedTime;
   Customer? _selectedCustomer;
+  bool _isSaving = false;
+  bool _saveCompleted = false;
   String _customerName = '';
   HairstyleModel? _selectedHairstyle;
   List<BarberService> _services = [];
@@ -121,11 +123,15 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
   }
 
   Future<void> _pickDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final selectedDate = DateUtils.dateOnly(_selectedDate);
+    final earliest = today.subtract(const Duration(days: 1));
+    final latest = today.add(const Duration(days: 365));
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      initialDate: selectedDate,
+      firstDate: selectedDate.isBefore(earliest) ? selectedDate : earliest,
+      lastDate: selectedDate.isAfter(latest) ? selectedDate : latest,
       builder: (context, child) {
         return Theme(
           data: ThemeData.dark().copyWith(
@@ -273,6 +279,8 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
   }
 
   Future<void> _saveAppointment() async {
+    if (_isSaving || _saveCompleted) return;
+    setState(() => _isSaving = true);
     try {
       // Validate
       if (_customerName.trim().isEmpty && _selectedCustomer == null) {
@@ -384,6 +392,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
           await NotificationService.instance.scheduleAlarm(appointment);
         }
         if (mounted) {
+          _saveCompleted = true;
           _showSnackBar('Randevu güncellendi!');
           Navigator.of(context).pop(true);
         }
@@ -397,6 +406,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
       await NotificationService.instance.scheduleAlarm(savedAppointment);
 
       if (mounted) {
+        _saveCompleted = true;
         _showSnackBar(AppStrings.appointmentCreated);
         Navigator.of(context).pop(true);
       }
@@ -404,6 +414,8 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
       if (mounted) {
         _showSnackBar('Kayıt Hatası: $e');
       }
+    } finally {
+      if (mounted && !_saveCompleted) setState(() => _isSaving = false);
     }
   }
 
@@ -687,7 +699,7 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
               width: double.infinity,
               height: 56,
               child: ElevatedButton(
-                onPressed: _saveAppointment,
+                onPressed: _isSaving ? null : _saveAppointment,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.gold,
                   foregroundColor: AppColors.background,

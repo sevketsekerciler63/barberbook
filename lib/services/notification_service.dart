@@ -8,6 +8,7 @@ import '../models/appointment.dart';
 import '../services/database_service.dart';
 import '../screens/alarm_screen.dart';
 import '../main.dart';
+import 'alarm_reconciliation.dart';
 
 class NotificationService {
   static final NotificationService instance = NotificationService._init();
@@ -80,7 +81,7 @@ class NotificationService {
     }
   }
 
-  Future<void> _scheduleMobileAlarm(
+  Future<bool> _scheduleMobileAlarm(
     Appointment appointment,
     DateTime scheduledDate,
   ) async {
@@ -103,11 +104,28 @@ class NotificationService {
     );
 
     try {
-      await Alarm.set(alarmSettings: alarmSettings);
-      debugPrint('Alarm scheduled for: $scheduledDate');
+      return await Alarm.set(alarmSettings: alarmSettings);
     } catch (e) {
       debugPrint('Error scheduling alarm: $e');
+      return false;
     }
+  }
+
+  /// Strict reconciliation after restoring a database; failures reach the UI.
+  Future<void> synchronizeWithAppointments() async {
+    if (!_isMobile) return;
+    final appointments = await DatabaseService.instance
+        .getUpcomingAppointments();
+    await rebuildAppointmentAlarms(
+      appointments: appointments,
+      now: DateTime.now(),
+      cancelAll: () async {
+        await Alarm.stopAll();
+        _handledRingingIds.clear();
+      },
+      schedule: (appointment) =>
+          _scheduleMobileAlarm(appointment, appointment.fullDateTime),
+    );
   }
 
   /// Cancel a scheduled alarm
@@ -134,16 +152,6 @@ class NotificationService {
         );
       }
     }
-  }
-
-  // To keep compatibility with AlarmScreen
-  void startAlarmVibration() {
-    // alarm package naturally handles ringing and vibration when it rings.
-    // If you need programmatic vibration here, you can place it, but usually not needed.
-  }
-
-  void stopAlarmVibration() {
-    // Handled by cancelAlarm(id) which calls Alarm.stop(id)
   }
 
   void dispose() {

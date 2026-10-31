@@ -52,7 +52,6 @@ class _AlarmScreenState extends State<AlarmScreen>
     _bellAnimation = Tween<double>(begin: -0.1, end: 0.1).animate(
       CurvedAnimation(parent: _bellController, curve: Curves.easeInOut),
     );
-    NotificationService.instance.startAlarmVibration();
   }
 
   @override
@@ -75,7 +74,6 @@ class _AlarmScreenState extends State<AlarmScreen>
 
   Future<void> _acknowledge() async {
     if (_acknowledged) return;
-    NotificationService.instance.stopAlarmVibration();
     if (widget.appointment.id != null) {
       await NotificationService.instance.cancelAlarm(widget.appointment.id!);
     }

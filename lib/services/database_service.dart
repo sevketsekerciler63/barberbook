@@ -342,9 +342,9 @@ class DatabaseService {
     if (existing.isEmpty) {
       return executor.insert('payments', values);
     }
-    if (existing.first['status'] == PaymentStatus.pending.value) {
+    if (existing.first['status'] != PaymentStatus.unknown.value) {
       throw StateError(
-        'Veresiye kaydı değiştirilemez; tahsilat hareketi ekleyin.',
+        'Kayıtlı ödeme değiştirilemez. Veresiye için tahsilat hareketi ekleyin; alınmış tahsilat korunur.',
       );
     }
     values['createdAt'] = existing.first['createdAt'];
@@ -527,8 +527,16 @@ class DatabaseService {
     DateTime date,
   ) async {
     final db = await database;
-    final start = DateTime(date.year, date.month, date.day).toIso8601String();
-    final end = DateTime(date.year, date.month, date.day + 1).toIso8601String();
+    final start = DateTime(
+      date.year,
+      date.month,
+      date.day,
+    ).toIso8601String().split('T').first;
+    final end = DateTime(
+      date.year,
+      date.month,
+      date.day + 1,
+    ).toIso8601String().split('T').first;
     final rows = await db.query(
       'payment_transactions',
       where: 'occurredAt >= ? AND occurredAt < ?',
@@ -544,12 +552,12 @@ class DatabaseService {
       startDate.year,
       startDate.month,
       startDate.day,
-    ).toIso8601String();
+    ).toIso8601String().split('T').first;
     final end = DateTime(
       endDate.year,
       endDate.month,
       endDate.day + 1,
-    ).toIso8601String();
+    ).toIso8601String().split('T').first;
     final paymentRows = await db.query(
       'payments',
       where: "status = 'paid' AND paidAt >= ? AND paidAt < ?",
@@ -575,8 +583,16 @@ class DatabaseService {
 
   Future<List<Payment>> getPaymentsForDate(DateTime date) async {
     final db = await database;
-    final start = DateTime(date.year, date.month, date.day).toIso8601String();
-    final end = DateTime(date.year, date.month, date.day + 1).toIso8601String();
+    final start = DateTime(
+      date.year,
+      date.month,
+      date.day,
+    ).toIso8601String().split('T').first;
+    final end = DateTime(
+      date.year,
+      date.month,
+      date.day + 1,
+    ).toIso8601String().split('T').first;
     final rows = await db.rawQuery(
       '''
       SELECT p.* FROM payments p
@@ -767,6 +783,10 @@ class DatabaseService {
 
   Future<int> updateCustomer(Customer customer) async {
     final db = await database;
+    return db.transaction((txn) => _updateCustomer(txn, customer));
+  }
+
+  Future<int> _updateCustomer(DatabaseExecutor db, Customer customer) async {
     final rowCount = await db.update(
       'customers',
       customer.toMap(),
@@ -785,27 +805,161 @@ class DatabaseService {
     return rowCount;
   }
 
-  Future<int> addCustomerPhoto(CustomerPhoto photo) async {
+  Future<Customer> resolveAppointmentCustomer({
+    int? selectedCustomerId,
+    required String name,
+    required String phone,
+  }) async {
+    final db = await database;
+    return db.transaction(
+      (txn) => _resolveAppointmentCustomer(
+        txn,
+        selectedCustomerId: selectedCustomerId,
+        name: name,
+        phone: phone,
+      ),
+    );
+  }
+
+  Future<Customer> _resolveAppointmentCustomer(
+    DatabaseExecutor db, {
+    int? selectedCustomerId,
+    required String name,
+    required String phone,
+  }) async {
+    if (selectedCustomerId == null) {
+      if (name.trim().isEmpty) throw ArgumentError('Müşteri adı gerekli.');
+      final customer = Customer(
+        name: name.trim(),
+        phone: phone.trim().isEmpty ? null : phone.trim(),
+      );
+      final id = await db.insert('customers', customer.toMap()..remove('id'));
+      return customer.copyWith(id: id);
+    }
+    final rows = await db.query(
+      'customers',
+      where: 'id = ?',
+      whereArgs: [selectedCustomerId],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('Seçilen müşteri bulunamadı.');
+    var customer = Customer.fromMap(rows.single);
+    if (phone.trim().isNotEmpty && customer.phone != phone.trim()) {
+      customer = customer.copyWith(phone: phone.trim());
+      await _updateCustomer(db, customer);
+    }
+    return customer;
+  }
+
+  /// The complete form save is one transaction; no orphan customer or partial edit.
+  Future<Appointment> saveAppointmentForCustomer({
+    required Appointment appointment,
+    int? selectedCustomerId,
+    required String phone,
+  }) async {
     final db = await database;
     return db.transaction((txn) async {
-      final customer = await txn.query(
-        'customers',
-        columns: ['id'],
-        where: 'id = ?',
-        whereArgs: [photo.customerId],
-        limit: 1,
+      // Recheck capacity inside the write transaction, after the UI's preview.
+      if (appointment.isActive) {
+        final date = appointment.appointmentDate
+            .toIso8601String()
+            .split('T')
+            .first;
+        final rows = await txn.query(
+          'appointments',
+          where: 'appointmentDate LIKE ?',
+          whereArgs: ['$date%'],
+        );
+        final settings = await txn.query(
+          'shop_settings',
+          columns: ['appointmentCapacity'],
+          limit: 1,
+        );
+        final capacity =
+            settings.firstOrNull?['appointmentCapacity'] as int? ?? 1;
+        if (appointmentExceedsCapacity(
+          appointment,
+          rows.map(Appointment.fromMap).where((a) => a.id != appointment.id),
+          capacity: capacity,
+        )) {
+          throw StateError('Bu saatte zaten bir randevu var!');
+        }
+      }
+      final customer = await _resolveAppointmentCustomer(
+        txn,
+        selectedCustomerId: selectedCustomerId,
+        name: appointment.customerName,
+        phone: phone,
       );
-      if (customer.isEmpty) throw StateError('Müşteri bulunamadı.');
-      final id = await txn.insert(
-        'customer_photos',
-        photo.toMap()..remove('id'),
+      final resolved = appointment.copyWith(
+        customerId: customer.id,
+        customerName: customer.name,
       );
-      await txn.update(
-        'customers',
-        {'photoPath': photo.photoPath},
-        where: 'id = ?',
-        whereArgs: [photo.customerId],
-      );
+      if (resolved.id == null) {
+        final id = await _insertAppointment(txn, resolved);
+        return resolved.copyWith(id: id);
+      }
+      final updated = await _updateAppointment(txn, resolved);
+      if (updated != 1) throw StateError('Randevu bulunamadı.');
+      return resolved;
+    });
+  }
+
+  Future<int> addCustomerPhoto(CustomerPhoto photo) async {
+    final db = await database;
+    return db.transaction((txn) => _addCustomerPhoto(txn, photo));
+  }
+
+  Future<int> _addCustomerPhoto(
+    DatabaseExecutor txn,
+    CustomerPhoto photo,
+  ) async {
+    final customer = await txn.query(
+      'customers',
+      columns: ['id'],
+      where: 'id = ?',
+      whereArgs: [photo.customerId],
+      limit: 1,
+    );
+    if (customer.isEmpty) throw StateError('Müşteri bulunamadı.');
+    final id = await txn.insert('customer_photos', photo.toMap()..remove('id'));
+    await txn.update(
+      'customers',
+      {'photoPath': photo.photoPath},
+      where: 'id = ?',
+      whereArgs: [photo.customerId],
+    );
+    return id;
+  }
+
+  Future<int> saveCustomerWithPhoto(
+    Customer customer, {
+    String? newPhotoPath,
+    CustomerPhotoType photoType = CustomerPhotoType.reference,
+    CustomerPhotoSource photoSource = CustomerPhotoSource.gallery,
+  }) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      int id;
+      if (customer.id == null) {
+        id = await txn.insert('customers', customer.toMap()..remove('id'));
+      } else {
+        id = customer.id!;
+        if (await _updateCustomer(txn, customer) != 1) {
+          throw StateError('Müşteri bulunamadı.');
+        }
+      }
+      if (newPhotoPath != null) {
+        await _addCustomerPhoto(
+          txn,
+          CustomerPhoto(
+            customerId: id,
+            photoPath: newPhotoPath,
+            type: photoType,
+            source: photoSource,
+          ),
+        );
+      }
       return id;
     });
   }
@@ -868,7 +1022,10 @@ class DatabaseService {
 
   Future<void> updateCustomerStats(int customerId) async {
     final db = await database;
+    await db.transaction((txn) => _updateCustomerStats(txn, customerId));
+  }
 
+  Future<void> _updateCustomerStats(DatabaseExecutor db, int customerId) async {
     // Count total appointments
     final countResult = await db.rawQuery(
       'SELECT COUNT(*) as count FROM appointments WHERE customerId = ?',
@@ -912,11 +1069,18 @@ class DatabaseService {
 
   Future<int> insertAppointment(Appointment appointment) async {
     final db = await database;
+    return db.transaction((txn) => _insertAppointment(txn, appointment));
+  }
+
+  Future<int> _insertAppointment(
+    DatabaseExecutor db,
+    Appointment appointment,
+  ) async {
     final id = await db.insert('appointments', appointment.toMap());
 
     // Update customer stats
     if (appointment.customerId != null) {
-      await updateCustomerStats(appointment.customerId!);
+      await _updateCustomerStats(db, appointment.customerId!);
     }
 
     return id;
@@ -993,7 +1157,13 @@ class DatabaseService {
 
   Future<int> updateAppointment(Appointment appointment) async {
     final db = await database;
+    return db.transaction((txn) => _updateAppointment(txn, appointment));
+  }
 
+  Future<int> _updateAppointment(
+    DatabaseExecutor db,
+    Appointment appointment,
+  ) async {
     // Check if customer ID changed to update old customer's stats
     final oldResult = await db.query(
       'appointments',
@@ -1013,10 +1183,10 @@ class DatabaseService {
     );
 
     if (appointment.customerId != null) {
-      await updateCustomerStats(appointment.customerId!);
+      await _updateCustomerStats(db, appointment.customerId!);
     }
     if (oldCustomerId != null && oldCustomerId != appointment.customerId) {
-      await updateCustomerStats(oldCustomerId);
+      await _updateCustomerStats(db, oldCustomerId);
     }
 
     return result;
@@ -1024,21 +1194,26 @@ class DatabaseService {
 
   Future<int> setAppointmentStatus(int id, AppointmentStatus status) async {
     final db = await database;
-    final result = await db.update(
-      'appointments',
-      {
-        'isCompleted': status == AppointmentStatus.completed ? 1 : 0,
-        'status': status.value,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
-    final appointment = await getAppointmentById(id);
-    if (appointment?.customerId != null) {
-      await updateCustomerStats(appointment!.customerId!);
-    }
-    return result;
+    return db.transaction((txn) async {
+      final result = await txn.update(
+        'appointments',
+        {
+          'isCompleted': status == AppointmentStatus.completed ? 1 : 0,
+          'status': status.value,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      final rows = await txn.query(
+        'appointments',
+        columns: ['customerId'],
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      final customerId = rows.firstOrNull?['customerId'] as int?;
+      if (customerId != null) await _updateCustomerStats(txn, customerId);
+      return result;
+    });
   }
 
   Future<int> toggleAppointmentCompletion(int id, bool isCompleted) async {

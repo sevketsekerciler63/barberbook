@@ -119,33 +119,29 @@ void main() {
     },
   );
 
-  testWidgets(
-    'editing a paid record preserves original discount tip and timestamp',
-    (tester) async {
-      final paidAt = DateTime(2026, 10, 1);
-      await open(
-        tester,
-        existing: Payment(
-          id: 3,
-          appointmentId: 7,
-          amountCents: 45000,
-          discountCents: 5000,
-          tipCents: 1000,
-          note: 'Eski not',
-          status: PaymentStatus.paid,
-          method: PaymentMethod.card,
-          paidAt: paidAt,
-        ),
-      );
-      await tester.tap(find.text('Kaydet'));
-      await tester.pumpAndSettle();
-      expect(result!.id, 3);
-      expect(result!.amountCents, 45000);
-      expect(result!.discountCents, 5000);
-      expect(result!.tipCents, 1000);
-      expect(result!.note, 'Eski not');
-      expect(result!.paidAt, paidAt);
-      expect(result!.method, PaymentMethod.card);
-    },
-  );
+  testWidgets('a paid record is read-only and offers no credit conversion', (
+    tester,
+  ) async {
+    final paidAt = DateTime(2026, 10, 1);
+    await open(
+      tester,
+      existing: Payment(
+        id: 3,
+        appointmentId: 7,
+        amountCents: 45000,
+        discountCents: 5000,
+        tipCents: 1000,
+        note: 'Eski not',
+        status: PaymentStatus.paid,
+        method: PaymentMethod.card,
+        paidAt: paidAt,
+      ),
+    );
+    expect(find.text('Tahsilat zaten kayıtlı'), findsOneWidget);
+    expect(find.text('Veresiye'), findsNothing);
+    expect(find.text('Kaydet'), findsNothing);
+    await tester.tap(find.text('Kapat'));
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+  });
 }

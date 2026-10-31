@@ -57,7 +57,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-10-31: 108 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-10-31: 127 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 ## Günlük kullanım
 
@@ -69,6 +69,14 @@ flutter build apk --debug --target-platform android-x64 --split-per-abi
 6. Yedekleme menüsünden fotoğraflı ZIP yedeği oluşturup cihaz dışına paylaşın. Geri yüklemeden önce içerik doğrulanır ve mevcut verinin güvenlik yedeği alınır. Sonrasında eski cihaz alarmları temizlenir ve geri gelen gelecekteki planlı randevular için yeniden kurulur. Alarm kurulumu başarısız olursa veriler korunur ve alarmlar için yeniden deneme sunulur.
 
 Tahsil edilmiş ödeme, randevu sonradan iptal edilse veya yeniden planlansa da gerçek tahsilat gününün kasasında kalır; durum değiştirmek para iadesi oluşturmaz. Müşteri telefonu ana ekran ve aramada her yenilemede güncel kayıttan okunur.
+
+Alınmış ödeme ve veresiye ana kaydı yeniden yazılmaz. Ödenmiş randevu tekrar planlanıp tamamlandığında ilk tahsilat korunur; yeni ödeme penceresi açılmaz. İade/düzeltme defteri bu sürümün kapsamına dahil değildir.
+
+Yedek oluşturulunca, dosya geri yükleme kurallarıyla doğrulanır. Eksik fotoğraflarda işlem durur; isterseniz açık onayla yalnız dışa aktarılan kopyadaki eksik bağlantılar çıkarılır. Aynı seçim geri yükleme öncesi güvenlik yedeği için de sunulur. Cihazdaki asıl kayıtlar sırf yedek almak için değiştirilmez. Arşiv sınırı 10.000 girdi (DB/manifest dahil) ve 200 MB açılmış içeriktir; sınır aşımı başarı diye bildirilmez.
+
+Normal randevu kaydında alarm kurulamazsa uyarı ve yeniden deneme sunulur. Aynı dakikadaki randevular, native paketin aynı saniyeyi değiştirme davranışı nedeniyle dakika içinde ayrı saniyelere dağıtılır; saat alanı dakika çözünürlüğündedir.
+
+[Mimari ve teknik kararlar](docs/architecture.md) · [Son düzeltmelerin doğrulaması](docs/followup-acceptance-2026-10-31.md)
 
 ## WhatsApp davranışı
 

@@ -18,7 +18,7 @@ class BackupService {
   static const _databaseArchivePath = 'database/barberbook.db';
   static const _format = 'barberbook_backup';
   static const _formatVersion = 1;
-  static const _maxArchiveEntries = 1000;
+  static const _maxArchiveEntries = 10000;
   static const _maxArchiveBytes = 200 * 1024 * 1024;
 
   Future<String> _databasePath() async =>
@@ -45,27 +45,28 @@ class BackupService {
     return directory;
   }
 
-  Future<File> createBackup() async {
+  Future<File> createBackup({bool omitMissingPhotos = false}) async {
+    final staging = await _stagingDirectory('create');
+    File? target;
     await DatabaseService.instance.closeDatabase();
-    final source = File(await _databasePath());
-    if (!await source.exists()) {
-      await DatabaseService.instance.database;
-      await DatabaseService.instance.closeDatabase();
-    }
-
     try {
-      final archive = Archive();
-      final databaseBytes = await source.readAsBytes();
-      archive.addFile(
-        ArchiveFile(_databaseArchivePath, databaseBytes.length, databaseBytes),
-      );
-
-      final photos = await _managedPhotoEntries(source);
-      for (final photo in photos) {
-        archive.addFile(
-          ArchiveFile(photo.archivePath, photo.bytes.length, photo.bytes),
-        );
+      final source = File(await _databasePath());
+      if (!await source.exists()) {
+        await DatabaseService.instance.database;
+        await DatabaseService.instance.closeDatabase();
       }
+      final snapshot = await source.copy(
+        path.join(staging.path, 'barberbook.db'),
+      );
+      final collection = await _managedPhotoEntries(snapshot);
+      if (collection.missingPaths.isNotEmpty) {
+        if (!omitMissingPhotos) {
+          throw MissingBackupPhotosException(collection.missingPaths.length);
+        }
+        await _removeMissingPhotoReferences(snapshot, collection.missingPaths);
+      }
+      final databaseBytes = await snapshot.readAsBytes();
+      final photos = collection.photos;
       final manifestBytes = utf8.encode(
         jsonEncode({
           'format': _format,
@@ -74,29 +75,94 @@ class BackupService {
           'photos': [for (final photo in photos) photo.toJson()],
         }),
       );
+      _checkArchiveLimits(
+        photos.length + 2,
+        databaseBytes.length +
+            manifestBytes.length +
+            photos.fold<int>(0, (sum, photo) => sum + photo.bytes.length),
+      );
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile(
+            _databaseArchivePath,
+            databaseBytes.length,
+            databaseBytes,
+          ),
+        );
+      for (final photo in photos) {
+        archive.addFile(
+          ArchiveFile(photo.archivePath, photo.bytes.length, photo.bytes),
+        );
+      }
       archive.addFile(
         ArchiveFile(_manifestPath, manifestBytes.length, manifestBytes),
       );
-
       final directory = await _backupDirectory();
       final baseName = 'barberbook_${_stamp()}';
-      var target = File(path.join(directory.path, '$baseName.zip'));
+      var candidate = File(path.join(directory.path, '$baseName.zip'));
       var duplicateIndex = 1;
-      while (await target.exists()) {
-        target = File(
-          path.join(directory.path, '${baseName}_$duplicateIndex.zip'),
+      while (await candidate.exists()) {
+        candidate = File(
+          path.join(directory.path, '${baseName}_${duplicateIndex++}.zip'),
         );
-        duplicateIndex++;
       }
-      final encoded = ZipEncoder().encodeBytes(archive);
-      await target.writeAsBytes(encoded, flush: true);
-      return target;
+      target = candidate;
+      await candidate.writeAsBytes(
+        ZipEncoder().encodeBytes(archive),
+        flush: true,
+      );
+      // A successful backup must obey exactly the same rules as an import.
+      await validateBackup(candidate);
+      return candidate;
+    } catch (_) {
+      if (target != null && await target.exists()) await target.delete();
+      rethrow;
     } finally {
+      if (await staging.exists()) await staging.delete(recursive: true);
       await DatabaseService.instance.database;
     }
   }
 
-  Future<List<_PhotoEntry>> _managedPhotoEntries(File database) async {
+  void _checkArchiveLimits(int count, int size) {
+    if (count > _maxArchiveEntries) {
+      throw StateError(
+        'Yedek arşivi çok fazla dosya içeriyor (en fazla ${_maxArchiveEntries - 2} fotoğraf).',
+      );
+    }
+    if (size > _maxArchiveBytes) {
+      throw StateError(
+        'Yedek arşivi çok büyük (açılmış içerik en fazla 200 MB).',
+      );
+    }
+  }
+
+  Future<void> _removeMissingPhotoReferences(
+    File database,
+    List<String> missing,
+  ) async {
+    final candidate = await openDatabase(database.path, singleInstance: false);
+    try {
+      await candidate.transaction((txn) async {
+        for (final photoPath in missing) {
+          await txn.update(
+            'customers',
+            {'photoPath': null},
+            where: 'photoPath = ?',
+            whereArgs: [photoPath],
+          );
+          await txn.delete(
+            'customer_photos',
+            where: 'photoPath = ?',
+            whereArgs: [photoPath],
+          );
+        }
+      });
+    } finally {
+      await candidate.close();
+    }
+  }
+
+  Future<_BackupPhotoCollection> _managedPhotoEntries(File database) async {
     Database? candidate;
     try {
       candidate = await openDatabase(
@@ -112,15 +178,23 @@ class BackupService {
       final photosDirectory = await _photosDirectory();
       final entries = <_PhotoEntry>[];
       final seenPaths = <String>{};
+      final missingPaths = <String>[];
+      var totalSize = await database.length();
       for (final row in rows) {
         final databasePath = row['photoPath'] as String?;
         if (databasePath == null ||
-            !path.isWithin(photosDirectory.path, databasePath) ||
+            databasePath.isEmpty ||
             !seenPaths.add(databasePath)) {
           continue;
         }
         final photo = File(databasePath);
-        if (!await photo.exists()) continue;
+        if (!path.isWithin(photosDirectory.path, databasePath) ||
+            !await photo.exists()) {
+          missingPaths.add(databasePath);
+          continue;
+        }
+        totalSize += await photo.length();
+        _checkArchiveLimits(entries.length + 3, totalSize);
         final bytes = await photo.readAsBytes();
         final fileName = path.basename(databasePath);
         entries.add(
@@ -132,7 +206,7 @@ class BackupService {
           ),
         );
       }
-      return entries;
+      return _BackupPhotoCollection(entries, missingPaths);
     } finally {
       await candidate?.close();
     }
@@ -194,9 +268,7 @@ class BackupService {
     try {
       final bytes = await backup.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes, verify: true);
-      if (archive.files.length > _maxArchiveEntries) {
-        throw StateError('Yedek arşivi çok fazla dosya içeriyor.');
-      }
+      _checkArchiveLimits(archive.files.length, 0);
       final files = <String, List<int>>{};
       var totalSize = 0;
       for (final file in archive.files) {
@@ -207,9 +279,7 @@ class BackupService {
         }
         final content = file.content;
         totalSize += content.length;
-        if (totalSize > _maxArchiveBytes) {
-          throw StateError('Yedek arşivi çok büyük.');
-        }
+        _checkArchiveLimits(archive.files.length, totalSize);
         files[file.name] = content;
       }
 
@@ -430,10 +500,13 @@ class BackupService {
   Future<BackupRestoreResult> restoreBackup(
     File backup, {
     Future<void> Function()? synchronizeAlarms,
+    bool omitMissingSafetyPhotos = false,
   }) async {
     await validateBackup(backup);
     final isArchive = await _isZip(backup);
-    final safetyBackup = await createBackup();
+    final safetyBackup = await createBackup(
+      omitMissingPhotos: omitMissingSafetyPhotos,
+    );
     await DatabaseService.instance.closeDatabase();
     try {
       await _restoreBackupContents(backup);
@@ -621,4 +694,18 @@ class BackupRestoreResult {
   /// Null when no device synchronization was requested (e.g. database-only use).
   final bool? alarmsSynchronized;
   const BackupRestoreResult({required this.alarmsSynchronized});
+}
+
+class MissingBackupPhotosException extends StateError {
+  final int count;
+  MissingBackupPhotosException(this.count)
+    : super(
+        '$count fotoğraf dosyası bulunamadı. Mevcut veriler değişmedi; eksik fotoğraf bağlantıları çıkarılarak ayrıca yedek oluşturabilirsiniz.',
+      );
+}
+
+class _BackupPhotoCollection {
+  final List<_PhotoEntry> photos;
+  final List<String> missingPaths;
+  const _BackupPhotoCollection(this.photos, this.missingPaths);
 }

@@ -105,6 +105,16 @@ class _AlarmScreenState extends State<AlarmScreen>
       }
       NotificationService.instance.onAlarmFinished?.call();
       if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'İşlem kaydedilemedi. Kayıtlı ödeme korunuyor; yeniden deneyin.',
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }

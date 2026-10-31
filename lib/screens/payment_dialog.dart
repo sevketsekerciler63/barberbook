@@ -39,6 +39,24 @@ Future<Payment?> showPaymentDialog(
     }
     return null;
   }
+  if (existing != null && existing.status != PaymentStatus.unknown) {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Tahsilat zaten kayıtlı'),
+        content: const Text(
+          'Randevu durumunu değiştirmek alınmış tahsilatı değiştirmez. Kayıtlı ödeme bu formdan yeniden yazılamaz.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+    return null;
+  }
   return showDialog<Payment>(
     context: context,
     builder: (_) =>

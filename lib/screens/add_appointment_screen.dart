@@ -8,8 +8,9 @@ import '../models/customer.dart';
 import '../models/barber_service.dart';
 import '../models/working_schedule.dart';
 import '../services/database_service.dart';
-import '../services/appointment_customer_service.dart';
 import '../services/notification_service.dart';
+import '../services/alarm_scheduling.dart';
+import '../widgets/alarm_feedback.dart';
 import '../utils/constants.dart';
 import '../utils/hairstyle_data.dart';
 import '../widgets/customer_search.dart';
@@ -341,12 +342,6 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
         return;
       }
 
-      final customer = await AppointmentCustomerService.resolve(
-        selectedCustomerId: _selectedCustomer?.id,
-        name: name,
-        phone: _phoneController.text,
-      );
-
       var status =
           widget.appointmentToEdit?.status ?? AppointmentStatus.planned;
 
@@ -366,8 +361,8 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
       // Create appointment
       final appointment = Appointment(
         id: widget.appointmentToEdit?.id,
-        customerId: customer.id,
-        customerName: customer.name,
+        customerId: _selectedCustomer?.id,
+        customerName: name,
         appointmentDate: DateTime(
           _selectedDate.year,
           _selectedDate.month,
@@ -385,29 +380,34 @@ class _AddAppointmentScreenState extends State<AddAppointmentScreen> {
         createdAt: widget.appointmentToEdit?.createdAt,
       );
 
+      final savedAppointment = await _dbService.saveAppointmentForCustomer(
+        appointment: appointment,
+        selectedCustomerId:
+            _selectedCustomer?.id ??
+            (widget.appointmentToEdit ?? widget.appointmentToRepeat)
+                ?.customerId,
+        phone: _phoneController.text,
+      );
       if (widget.appointmentToEdit != null) {
-        await _dbService.updateAppointment(appointment);
-        await NotificationService.instance.cancelAlarm(appointment.id!);
-        if (appointment.shouldHaveAlarm) {
-          await NotificationService.instance.scheduleAlarm(appointment);
-        }
-        if (mounted) {
-          _saveCompleted = true;
-          _showSnackBar('Randevu güncellendi!');
-          Navigator.of(context).pop(true);
-        }
-        return;
+        await NotificationService.instance.cancelAlarm(savedAppointment.id!);
       }
-
-      final id = await _dbService.insertAppointment(appointment);
-
-      // Schedule alarm
-      final savedAppointment = appointment.copyWith(id: id);
-      await NotificationService.instance.scheduleAlarm(savedAppointment);
-
+      final alarmResult = await NotificationService.instance.scheduleAlarm(
+        savedAppointment,
+      );
       if (mounted) {
         _saveCompleted = true;
-        _showSnackBar(AppStrings.appointmentCreated);
+        if (alarmResult == AlarmScheduleResult.failed) {
+          showAppointmentAlarmWarning(
+            ScaffoldMessenger.of(context),
+            savedAppointment,
+          );
+        } else {
+          _showSnackBar(
+            widget.appointmentToEdit != null
+                ? 'Randevu güncellendi!'
+                : AppStrings.appointmentCreated,
+          );
+        }
         Navigator.of(context).pop(true);
       }
     } catch (e) {

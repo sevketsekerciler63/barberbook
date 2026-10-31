@@ -1,3 +1,6 @@
+import '../services/latest_request.dart';
+import '../services/alarm_scheduling.dart';
+import '../widgets/alarm_feedback.dart';
 import '../services/customer_phone_service.dart';
 import 'dart:async';
 import 'dart:io';
@@ -35,6 +38,10 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _dbService = DatabaseService.instance;
+  final _dateRequest = LatestRequest();
+  final _searchRequest = LatestRequest();
+  String? _loadError;
+  String? _searchError;
   DateTime _selectedDate = DateTime.now();
   List<Appointment> _appointments = [];
   PaymentSummary _paymentSummary = PaymentSummary.fromPayments(const []);
@@ -47,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSearching = false;
 
   final Map<int, String> _customerPhones = {};
+  final Map<int, String> _searchCustomerPhones = {};
 
   Timer? _whatsappReminderTimer;
   bool _reminderDialogOpen = false;
@@ -174,6 +182,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    _dateRequest.dispose();
+    _searchRequest.dispose();
+    if (NotificationService.instance.onAlarmFinished == _loadAppointments) {
+      NotificationService.instance.onAlarmFinished = null;
+    }
     _searchController.dispose();
     _whatsappReminderTimer?.cancel();
     super.dispose();
@@ -379,56 +392,87 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadAppointments() async {
-    setState(() => _isLoading = true);
-    final settings = await Future.wait([
-      _dbService.getAppointmentsByDate(_selectedDate),
-      _dbService.getPaymentsForDate(_selectedDate),
-      _dbService.getPaymentTransactionsForDate(_selectedDate),
-      _dbService.isPaymentEnabled(),
-    ]);
-    final appointments = settings[0] as List<Appointment>;
-    final payments = settings[1] as List<Payment>;
-    final transactions = settings[2] as List<PaymentTransaction>;
-    final paymentEnabled = settings[3] as bool;
-    final collectionPayments = transactions
-        .where((item) => item.type == PaymentTransactionType.collection)
-        .map(
-          (item) => Payment(
-            appointmentId: item.appointmentId,
-            amountCents: item.amountCents,
-            status: PaymentStatus.paid,
-            method: item.method,
-            paidAt: item.occurredAt,
-            note: item.note,
-            createdAt: item.createdAt,
-          ),
-        );
-
-    final phones = await CustomerPhoneService.load([
-      ...appointments,
-      ..._searchResults,
-    ]);
-
-    appointments.sort((a, b) {
-      if (a.isCompleted == b.isCompleted) {
-        return a.appointmentTime.compareTo(b.appointmentTime);
-      }
-      return a.isCompleted ? 1 : -1;
+    if (!mounted) return;
+    final date = _selectedDate;
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
     });
-
-    if (mounted) {
-      setState(() {
-        _appointments = appointments;
-        _paymentSummary = PaymentSummary.fromPayments([
-          ...payments,
-          ...collectionPayments,
+    await _dateRequest.run(
+      load: () async {
+        final settings = await Future.wait([
+          _dbService.getAppointmentsByDate(date),
+          _dbService.getPaymentsForDate(date),
+          _dbService.getPaymentTransactionsForDate(date),
+          _dbService.isPaymentEnabled(),
         ]);
-        _paymentEnabled = paymentEnabled;
-        _customerPhones
-          ..clear()
-          ..addAll(phones);
-        _isLoading = false;
-      });
+        final appointments = settings[0] as List<Appointment>;
+        final payments = settings[1] as List<Payment>;
+        final transactions = settings[2] as List<PaymentTransaction>;
+        final paymentEnabled = settings[3] as bool;
+        final collectionPayments = transactions
+            .where((item) => item.type == PaymentTransactionType.collection)
+            .map(
+              (item) => Payment(
+                appointmentId: item.appointmentId,
+                amountCents: item.amountCents,
+                status: PaymentStatus.paid,
+                method: item.method,
+                paidAt: item.occurredAt,
+                note: item.note,
+                createdAt: item.createdAt,
+              ),
+            );
+
+        final phones = await CustomerPhoneService.load(appointments);
+
+        appointments.sort((a, b) {
+          if (a.isCompleted == b.isCompleted) {
+            return a.appointmentTime.compareTo(b.appointmentTime);
+          }
+          return a.isCompleted ? 1 : -1;
+        });
+
+        return (
+          appointments: appointments,
+          payments: [...payments, ...collectionPayments],
+          phones: phones,
+          paymentEnabled: paymentEnabled,
+        );
+      },
+      apply: (data) {
+        if (!mounted) return;
+        setState(() {
+          _appointments = data.appointments;
+          _paymentSummary = PaymentSummary.fromPayments(data.payments);
+          _paymentEnabled = data.paymentEnabled;
+          _customerPhones
+            ..clear()
+            ..addAll(data.phones);
+          _isLoading = false;
+        });
+      },
+      onError: (_, _) {
+        if (!mounted) return;
+        setState(() {
+          _appointments = [];
+          _isLoading = false;
+          _loadError = 'Randevular yüklenemedi. Tekrar deneyin.';
+        });
+      },
+    );
+  }
+
+  Future<void> _runAppointmentAction(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (_) {
+      if (mounted) {
+        _showSnackBar(
+          'İşlem kaydedilemedi. Güncel kayıtları kontrol edip tekrar deneyin.',
+        );
+        await _loadAppointments();
+      }
     }
   }
 
@@ -483,8 +527,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final existing = await _dbService.getPaymentForAppointment(
         appointment.id!,
       );
-      if (existing?.status == PaymentStatus.pending) {
-        // Completing a rescheduled appointment must not recreate its debt.
+      if (existing != null && existing.status != PaymentStatus.unknown) {
+        // Status changes never replace an existing financial record.
         await _dbService.completeAppointmentWithoutPayment(appointment.id!);
       } else {
         if (!mounted) return;
@@ -511,7 +555,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final updatedAppointment = appointment.copyWith(status: selected);
     if (updatedAppointment.shouldHaveAlarm &&
         updatedAppointment.fullDateTime.isAfter(DateTime.now())) {
-      await NotificationService.instance.scheduleAlarm(updatedAppointment);
+      final alarmResult = await NotificationService.instance.scheduleAlarm(
+        updatedAppointment,
+      );
+      if (mounted && alarmResult == AlarmScheduleResult.failed) {
+        showAppointmentAlarmWarning(
+          ScaffoldMessenger.of(context),
+          updatedAppointment,
+        );
+      }
     }
     await _loadAppointments();
     if (_isSearching) await _searchAppointments(_searchController.text);
@@ -563,8 +615,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final existing = await _dbService.getPaymentForAppointment(
         appointment.id!,
       );
-      if (existing?.status == PaymentStatus.pending) {
-        // Completing a rescheduled appointment must not recreate its debt.
+      if (existing != null && existing.status != PaymentStatus.unknown) {
+        // Status changes never replace an existing financial record.
         await _dbService.completeAppointmentWithoutPayment(appointment.id!);
       } else {
         if (!mounted) return;
@@ -594,7 +646,15 @@ class _HomeScreenState extends State<HomeScreen> {
       // Reschedule the alarm if we are un-completing it and it's in the future
       final updatedAppt = appointment.copyWith(isCompleted: false);
       if (updatedAppt.fullDateTime.isAfter(DateTime.now())) {
-        await NotificationService.instance.scheduleAlarm(updatedAppt);
+        final alarmResult = await NotificationService.instance.scheduleAlarm(
+          updatedAppt,
+        );
+        if (mounted && alarmResult == AlarmScheduleResult.failed) {
+          showAppointmentAlarmWarning(
+            ScaffoldMessenger.of(context),
+            updatedAppt,
+          );
+        }
       }
     }
     await _loadAppointments();
@@ -612,29 +672,42 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _searchAppointments(String query) async {
+    if (!mounted) return;
     if (query.trim().isEmpty) {
-      if (mounted) {
-        setState(() {
-          _searchResults = [];
-        });
-      }
+      _searchRequest.invalidate();
+      setState(() {
+        _searchResults = [];
+        _searchCustomerPhones.clear();
+        _searchError = null;
+      });
       return;
     }
-
-    final results = await _dbService.searchAppointments(query);
-    final phones = await CustomerPhoneService.load([
-      ...results,
-      ..._appointments,
-    ]);
-
-    if (mounted) {
-      setState(() {
-        _searchResults = results;
-        _customerPhones
-          ..clear()
-          ..addAll(phones);
-      });
-    }
+    setState(() => _searchError = null);
+    await _searchRequest.run(
+      load: () async {
+        final results = await _dbService.searchAppointments(query);
+        final phones = await CustomerPhoneService.load(results);
+        return (results: results, phones: phones);
+      },
+      apply: (data) {
+        if (mounted) {
+          setState(() {
+            _searchResults = data.results;
+            _searchCustomerPhones
+              ..clear()
+              ..addAll(data.phones);
+          });
+        }
+      },
+      onError: (_, _) {
+        if (mounted) {
+          setState(() {
+            _searchResults = [];
+            _searchError = 'Arama yapılamadı. Tekrar deneyin.';
+          });
+        }
+      },
+    );
   }
 
   void _goToToday() {
@@ -752,8 +825,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() {
                   _isSearching = !_isSearching;
                   if (!_isSearching) {
+                    _searchRequest.invalidate();
                     _searchController.clear();
                     _searchResults.clear();
+                    _searchCustomerPhones.clear();
                   }
                 });
               },
@@ -1028,10 +1103,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(height: 16),
                           Text(
                             _isSearching
-                                ? 'Arama sonucu bulunamadı'
-                                : (_isToday
-                                      ? 'Bugün randevu yok'
-                                      : 'Bu gün için randevu yok'),
+                                ? (_searchError ?? 'Arama sonucu bulunamadı')
+                                : (_loadError ??
+                                      (_isToday
+                                          ? 'Bugün randevu yok'
+                                          : 'Bu gün için randevu yok')),
                             style: const TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 16,
@@ -1040,14 +1116,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           if (!_isSearching) ...[
                             const SizedBox(height: 8),
                             TextButton.icon(
-                              onPressed: _addAppointment,
+                              onPressed: _loadError == null
+                                  ? _addAppointment
+                                  : _loadAppointments,
                               icon: const Icon(
                                 Icons.add,
                                 color: AppColors.gold,
                               ),
-                              label: const Text(
-                                'Randevu Ekle',
-                                style: TextStyle(color: AppColors.gold),
+                              label: Text(
+                                _loadError == null
+                                    ? 'Randevu Ekle'
+                                    : 'Tekrar dene',
+                                style: const TextStyle(color: AppColors.gold),
                               ),
                             ),
                           ],
@@ -1100,8 +1180,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               SlidableAction(
-                                onPressed: (_) =>
-                                    _changeAppointmentStatus(appointment),
+                                onPressed: (_) => _runAppointmentAction(
+                                  () => _changeAppointmentStatus(appointment),
+                                ),
                                 backgroundColor: AppColors.red,
                                 foregroundColor: Colors.white,
                                 icon: Icons.event_busy,
@@ -1115,11 +1196,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           child: AppointmentCard(
                             appointment: appointment,
-                            onComplete: () =>
-                                _toggleAppointmentCompletion(appointment),
+                            onComplete: () => _runAppointmentAction(
+                              () => _toggleAppointmentCompletion(appointment),
+                            ),
                             showDate: _isSearching,
                             customerPhone: appointment.customerId != null
-                                ? _customerPhones[appointment.customerId!]
+                                ? (_isSearching
+                                      ? _searchCustomerPhones
+                                      : _customerPhones)[appointment
+                                      .customerId!]
                                 : null,
                             onCall: appointment.customerId != null
                                 ? () => _callAppointmentCustomer(appointment)

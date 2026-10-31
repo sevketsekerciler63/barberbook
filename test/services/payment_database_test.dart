@@ -163,7 +163,7 @@ void main() {
   );
 
   test(
-    'complete with payment is atomic and keeps one payment identity',
+    'recompleting with a replacement payment is rejected and keeps original identity',
     () async {
       final db = await DatabaseService.instance.database;
       final appointmentId = await _insertAppointment(db);
@@ -182,15 +182,18 @@ void main() {
         appointmentId,
       );
 
-      await DatabaseService.instance.completeAppointmentWithPayment(
-        appointmentId,
-        Payment(
-          appointmentId: appointmentId,
-          amountCents: 60000,
-          status: PaymentStatus.paid,
-          method: PaymentMethod.card,
-          paidAt: DateTime(2026, 9, 21, 11),
+      await expectLater(
+        DatabaseService.instance.completeAppointmentWithPayment(
+          appointmentId,
+          Payment(
+            appointmentId: appointmentId,
+            amountCents: 60000,
+            status: PaymentStatus.paid,
+            method: PaymentMethod.card,
+            paidAt: DateTime(2026, 9, 21, 11),
+          ),
         ),
+        throwsStateError,
       );
       final second = await DatabaseService.instance.getPaymentForAppointment(
         appointmentId,
@@ -201,8 +204,8 @@ void main() {
 
       expect(appointment!.status, AppointmentStatus.completed);
       expect(second!.id, first!.id);
-      expect(second.amountCents, 60000);
-      expect(second.method, PaymentMethod.card);
+      expect(second.amountCents, 50000);
+      expect(second.method, PaymentMethod.cash);
       expect((await db.query('payments')).length, 1);
     },
   );

@@ -1,3 +1,4 @@
+import '../services/latest_request.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -25,6 +26,8 @@ class _CashReportScreenState extends State<CashReportScreen> {
   late DateTime _end;
   CashReport? _report;
   bool _loading = true;
+  final _reportRequest = LatestRequest();
+  bool _exporting = false;
   String? _error;
 
   @override
@@ -36,25 +39,40 @@ class _CashReportScreenState extends State<CashReportScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _reportRequest.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
+    if (!mounted) return;
+    final start = _start;
+    final end = _end;
     setState(() {
       _loading = true;
       _error = null;
+      _report = null;
     });
-    try {
-      final report = await DatabaseService.instance.getCashReport(_start, _end);
-      if (!mounted) return;
-      setState(() {
-        _report = report;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
+    await _reportRequest.run(
+      load: () => DatabaseService.instance.getCashReport(start, end),
+      apply: (report) {
+        if (mounted) {
+          setState(() {
+            _report = report;
+            _loading = false;
+          });
+        }
+      },
+      onError: (_, _) {
+        if (mounted) {
+          setState(() {
+            _error = 'Rapor yüklenemedi. Tekrar deneyin.';
+            _loading = false;
+          });
+        }
+      },
+    );
   }
 
   void _selectPreset(String preset) {
@@ -95,7 +113,10 @@ class _CashReportScreenState extends State<CashReportScreen> {
 
   Future<void> _exportCsv() async {
     final report = _report;
-    if (report == null) return;
+    if (report == null || _exporting || _loading) return;
+    final start = _start;
+    final end = _end;
+    setState(() => _exporting = true);
     try {
       final directory = Directory(p.join(await getDatabasesPath(), 'reports'));
       await directory.create(recursive: true);
@@ -103,11 +124,11 @@ class _CashReportScreenState extends State<CashReportScreen> {
       final file = File(
         p.join(
           directory.path,
-          'kasa_${date.format(_start)}_${date.format(_end)}.csv',
+          'kasa_${date.format(start)}_${date.format(end)}.csv',
         ),
       );
       await file.writeAsString(
-        '\uFEFF${CashReportCsv.build(report, _start, _end)}',
+        '\uFEFF${CashReportCsv.build(report, start, end)}',
         flush: true,
       );
       await SharePlus.instance.share(
@@ -115,8 +136,8 @@ class _CashReportScreenState extends State<CashReportScreen> {
           files: [XFile(file.path, mimeType: 'text/csv')],
           subject: 'BarberBook kasa raporu',
           text:
-              '${DateFormat('dd.MM.yyyy').format(_start)} – '
-              '${DateFormat('dd.MM.yyyy').format(_end)} tahsilat raporu',
+              '${DateFormat('dd.MM.yyyy').format(start)} – '
+              '${DateFormat('dd.MM.yyyy').format(end)} tahsilat raporu',
         ),
       );
       if (mounted) {
@@ -130,6 +151,8 @@ class _CashReportScreenState extends State<CashReportScreen> {
           context,
         ).showSnackBar(SnackBar(content: Text('CSV oluşturulamadı: $error')));
       }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
     }
   }
 
@@ -175,7 +198,9 @@ class _CashReportScreenState extends State<CashReportScreen> {
           ),
           IconButton(
             tooltip: 'CSV oluştur',
-            onPressed: _report == null ? null : _exportCsv,
+            onPressed: _report == null || _loading || _exporting
+                ? null
+                : _exportCsv,
             icon: const Icon(Icons.file_download_outlined),
           ),
         ],

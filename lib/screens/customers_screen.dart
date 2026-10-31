@@ -1,3 +1,4 @@
+import '../services/latest_request.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -16,7 +17,6 @@ import '../utils/constants.dart';
 import '../utils/hairstyle_data.dart';
 import '../screens/hairstyle_gallery.dart';
 import '../screens/add_appointment_screen.dart';
-import '../services/notification_service.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -60,6 +60,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
   List<Customer> _customers = [];
   Map<int, Appointment> _pendingAppointments = {};
   bool _isLoading = true;
+  String? _loadError;
+  final _customerRequest = LatestRequest();
 
   @override
   void initState() {
@@ -69,37 +71,52 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   @override
   void dispose() {
+    _customerRequest.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadCustomers() async {
-    setState(() => _isLoading = true);
-    final customers = await _dbService.getAllCustomers();
-    final upcomingList = await _dbService.getUpcomingAppointments();
+  Future<void> _loadCustomers() => _queryCustomers(_searchController.text);
+  Future<void> _searchCustomers(String query) => _queryCustomers(query);
+
+  Future<void> _queryCustomers(String query) async {
     if (!mounted) return;
-
-    final Map<int, Appointment> pending = {};
-    for (var apt in upcomingList) {
-      if (apt.customerId != null && !pending.containsKey(apt.customerId)) {
-        pending[apt.customerId!] = apt;
-      }
-    }
-
     setState(() {
-      _customers = customers;
-      _pendingAppointments = pending;
-      _isLoading = false;
+      _isLoading = true;
+      _loadError = null;
     });
-  }
-
-  Future<void> _searchCustomers(String query) async {
-    if (query.isEmpty) {
-      _loadCustomers();
-      return;
-    }
-    final customers = await _dbService.searchCustomers(query);
-    setState(() => _customers = customers);
+    await _customerRequest.run(
+      load: () async {
+        final customers = query.trim().isEmpty
+            ? await _dbService.getAllCustomers()
+            : await _dbService.searchCustomers(query);
+        final upcoming = await _dbService.getUpcomingAppointments();
+        final pending = <int, Appointment>{};
+        for (final appointment in upcoming) {
+          final id = appointment.customerId;
+          if (id != null) pending.putIfAbsent(id, () => appointment);
+        }
+        return (customers: customers, pending: pending);
+      },
+      apply: (data) {
+        if (mounted) {
+          setState(() {
+            _customers = data.customers;
+            _pendingAppointments = data.pending;
+            _isLoading = false;
+          });
+        }
+      },
+      onError: (_, _) {
+        if (mounted) {
+          setState(() {
+            _customers = [];
+            _isLoading = false;
+            _loadError = 'Müşteriler yüklenemedi. Aramayı yeniden deneyin.';
+          });
+        }
+      },
+    );
   }
 
   Future<void> _deleteCustomer(Customer customer) async {
@@ -132,16 +149,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
     );
 
     if (confirmed == true && customer.id != null) {
-      // Önce bu müşteriye ait iptal edilmemiş randevuların alarmlarını telefon sisteminden kaldır
-      final customerAppointments = await _dbService.getAppointmentsForCustomer(
-        customer.id!,
-      );
-      for (final apt in customerAppointments) {
-        if (!apt.isCompleted && apt.id != null) {
-          await NotificationService.instance.cancelAlarm(apt.id!);
-        }
-      }
-
+      // Customer deletion detaches the card; retained appointments and alarms stay.
       await _dbService.deleteCustomer(customer.id!);
       await _loadCustomers();
       if (_searchController.text.isNotEmpty) {
@@ -160,6 +168,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
     var selectedPhotoType = CustomerPhotoType.reference;
     var photoChanged = false;
     final isEditing = customer != null;
+    var saving = false;
+    String? uncommittedPhotoPath;
     Future<bool> confirmManagedPhotoChange(String action) async {
       if (selectedPhotoPath == null) return true;
       return await showDialog<bool>(
@@ -451,88 +461,117 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      onPressed: () async {
-                        if (nameController.text.trim().isEmpty) return;
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              if (nameController.text.trim().isEmpty) return;
+                              setModalState(() => saving = true);
+                              try {
+                                final newName = nameController.text.trim();
+                                final newPhone =
+                                    phoneController.text.trim().isEmpty
+                                    ? null
+                                    : phoneController.text.trim();
+                                final newNotes =
+                                    notesController.text.trim().isEmpty
+                                    ? null
+                                    : notesController.text.trim();
+                                String? savedPhotoPath = selectedPhotoPath;
+                                if (photoChanged && savedPhotoPath != null) {
+                                  try {
+                                    savedPhotoPath =
+                                        await CustomerPhotoStorage.importImage(
+                                          savedPhotoPath,
+                                        );
+                                    uncommittedPhotoPath = savedPhotoPath;
+                                  } on FileSystemException catch (_) {
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(
+                                        this.context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Fotoğraf kaydedilemedi.',
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    return;
+                                  }
+                                }
 
-                        final newName = nameController.text.trim();
-                        final newPhone = phoneController.text.trim().isEmpty
-                            ? null
-                            : phoneController.text.trim();
-                        final newNotes = notesController.text.trim().isEmpty
-                            ? null
-                            : notesController.text.trim();
-                        String? savedPhotoPath = selectedPhotoPath;
-                        if (photoChanged && savedPhotoPath != null) {
-                          try {
-                            savedPhotoPath =
-                                await CustomerPhotoStorage.importImage(
-                                  savedPhotoPath,
-                                );
-                          } on FileSystemException catch (_) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(this.context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Fotoğraf kaydedilemedi.'),
-                                ),
-                              );
-                            }
-                            return;
-                          }
-                        }
-
-                        if (isEditing) {
-                          final updated = Customer(
-                            id: customer.id,
-                            name: newName,
-                            phone: newPhone,
-                            notes: newNotes,
-                            favoriteHairstyle: selectedHairstyleName,
-                            photoPath: photoChanged && savedPhotoPath == null
-                                ? null
-                                : customer.photoPath,
-                            totalAppointments: customer.totalAppointments,
-                            lastAppointmentDate: customer.lastAppointmentDate,
-                            createdAt: customer.createdAt,
-                          );
-                          await _dbService.updateCustomer(updated);
-                          if (photoChanged && savedPhotoPath != null) {
-                            await _dbService.addCustomerPhoto(
-                              CustomerPhoto(
-                                customerId: customer.id!,
-                                photoPath: savedPhotoPath,
-                                type: selectedPhotoType,
-                                source: selectedPhotoSource,
-                              ),
-                            );
-                          }
-                        } else {
-                          final customerId = await _dbService.insertCustomer(
-                            Customer(
-                              name: newName,
-                              phone: newPhone,
-                              notes: newNotes,
-                              favoriteHairstyle: selectedHairstyleName,
-                            ),
-                          );
-                          if (savedPhotoPath != null) {
-                            await _dbService.addCustomerPhoto(
-                              CustomerPhoto(
-                                customerId: customerId,
-                                photoPath: savedPhotoPath,
-                                type: selectedPhotoType,
-                                source: selectedPhotoSource,
-                              ),
-                            );
-                          }
-                        }
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          await _loadCustomers();
-                          if (_searchController.text.isNotEmpty) {
-                            await _searchCustomers(_searchController.text);
-                          }
-                        }
-                      },
+                                if (isEditing) {
+                                  final updated = Customer(
+                                    id: customer.id,
+                                    name: newName,
+                                    phone: newPhone,
+                                    notes: newNotes,
+                                    favoriteHairstyle: selectedHairstyleName,
+                                    photoPath:
+                                        photoChanged && savedPhotoPath == null
+                                        ? null
+                                        : customer.photoPath,
+                                    totalAppointments:
+                                        customer.totalAppointments,
+                                    lastAppointmentDate:
+                                        customer.lastAppointmentDate,
+                                    createdAt: customer.createdAt,
+                                  );
+                                  await _dbService.saveCustomerWithPhoto(
+                                    updated,
+                                    newPhotoPath: photoChanged
+                                        ? savedPhotoPath
+                                        : null,
+                                    photoType: selectedPhotoType,
+                                    photoSource: selectedPhotoSource,
+                                  );
+                                } else {
+                                  await _dbService.saveCustomerWithPhoto(
+                                    Customer(
+                                      name: newName,
+                                      phone: newPhone,
+                                      notes: newNotes,
+                                      favoriteHairstyle: selectedHairstyleName,
+                                    ),
+                                    newPhotoPath: savedPhotoPath,
+                                    photoType: selectedPhotoType,
+                                    photoSource: selectedPhotoSource,
+                                  );
+                                }
+                                uncommittedPhotoPath = null;
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                  await _loadCustomers();
+                                  if (_searchController.text.isNotEmpty) {
+                                    await _searchCustomers(
+                                      _searchController.text,
+                                    );
+                                  }
+                                }
+                              } catch (_) {
+                                if (uncommittedPhotoPath != null) {
+                                  await CustomerPhotoStorage.deleteManagedPhoto(
+                                    uncommittedPhotoPath,
+                                  );
+                                  uncommittedPhotoPath = null;
+                                }
+                                if (mounted) {
+                                  ScaffoldMessenger.of(
+                                    this.context,
+                                  ).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Müşteri kaydedilemedi. Yeniden deneyin.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              } finally {
+                                if (context.mounted) {
+                                  setModalState(() => saving = false);
+                                }
+                              }
+                            },
                       child: Text(
                         isEditing ? 'GÜNCELLE' : 'KAYDET',
                         style: const TextStyle(
@@ -1272,8 +1311,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          AppStrings.noCustomers,
-                          style: TextStyle(
+                          _loadError ?? AppStrings.noCustomers,
+                          style: const TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 16,
                           ),

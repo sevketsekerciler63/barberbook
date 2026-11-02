@@ -1,23 +1,24 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:share_plus/share_plus.dart';
 import '../models/backup_preview.dart';
+import '../services/backup_file_gateway.dart';
 import '../services/backup_service.dart';
 import '../services/notification_service.dart';
 import '../utils/constants.dart';
 
 class BackupScreen extends StatefulWidget {
-  const BackupScreen({super.key});
+  final BackupFileGateway files;
+  const BackupScreen({super.key, this.files = const BackupFileGateway()});
 
   @override
   State<BackupScreen> createState() => _BackupScreenState();
 }
 
 class _BackupScreenState extends State<BackupScreen> {
-  List<File> _backups = [];
+  List<BackupFileEntry> _backups = [];
   bool _busy = true;
+  bool _loadFailed = false;
 
   @override
   void initState() {
@@ -26,8 +27,13 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
+    setState(() {
+      _busy = true;
+      _loadFailed = false;
+    });
     try {
-      final backups = await BackupService.instance.listBackups();
+      final backups = await widget.files.list();
       if (mounted) {
         setState(() {
           _backups = backups;
@@ -36,17 +42,16 @@ class _BackupScreenState extends State<BackupScreen> {
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _busy = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Yedekler yüklenemedi. Yeniden deneyin.'),
-          ),
-        );
+        setState(() {
+          _busy = false;
+          _loadFailed = true;
+        });
       }
     }
   }
 
   Future<void> _create({bool omitMissingPhotos = false}) async {
+    if (_busy || !mounted) return;
     setState(() => _busy = true);
     try {
       final file = await BackupService.instance.createBackup(
@@ -92,30 +97,43 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _importBackup() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['zip', 'db'],
-    );
-    final path = result?.files.single.path;
-    if (path == null) return;
-    await _restore(File(path));
+    if (_busy) return;
+    setState(() => _busy = true);
+    File? file;
+    try {
+      file = await widget.files.pick();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Dosya seçimi açılamadı. Yeniden deneyin.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (file != null && mounted) await _restore(file);
   }
 
   Future<void> _shareBackup(File file) async {
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [
-          XFile(
-            file.path,
-            mimeType: file.path.endsWith('.zip')
-                ? 'application/zip'
-                : 'application/x-sqlite3',
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.files.share(file);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Yedek paylaşılamadı. Dosyayı kontrol edip tekrar deneyin.',
+            ),
           ),
-        ],
-        subject: 'BarberBook yedeği',
-        text: 'BarberBook veri ve müşteri fotoğrafları yedeği',
-      ),
-    );
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   String _previewText(BackupPreview preview) =>
@@ -127,6 +145,7 @@ class _BackupScreenState extends State<BackupScreen> {
       'Kasa hareketleri: ${preview.transactionCount}';
 
   Future<void> _restore(File file) async {
+    if (_busy || !mounted) return;
     setState(() => _busy = true);
     BackupPreview preview;
     try {
@@ -169,6 +188,7 @@ class _BackupScreenState extends State<BackupScreen> {
     File file, {
     bool omitMissingSafetyPhotos = false,
   }) async {
+    if (_busy || !mounted) return;
     setState(() => _busy = true);
     try {
       final result = await BackupService.instance.restoreBackup(
@@ -252,9 +272,12 @@ class _BackupScreenState extends State<BackupScreen> {
     );
   }
 
-  String _label(File file) {
-    final modified = file.lastModifiedSync();
-    final sizeKb = file.lengthSync() / 1024;
+  String _label(BackupFileEntry entry) {
+    if (!entry.isAvailable) {
+      return 'Dosya bilgileri okunamadı. Listeyi yenileyin.';
+    }
+    final modified = entry.modified!;
+    final sizeKb = entry.sizeBytes! / 1024;
     return '${DateFormat('dd.MM.yyyy HH:mm').format(modified)} • ${sizeKb.toStringAsFixed(1)} KB';
   }
 
@@ -266,6 +289,11 @@ class _BackupScreenState extends State<BackupScreen> {
         appBar: AppBar(
           title: const Text('Yedekleme'),
           actions: [
+            IconButton(
+              tooltip: 'Yedek listesini yenile',
+              onPressed: _busy ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
             IconButton(
               tooltip: 'ZIP veya eski DB yedeğini içe aktar',
               onPressed: _busy ? null : _importBackup,
@@ -284,29 +312,48 @@ class _BackupScreenState extends State<BackupScreen> {
             ? const Center(
                 child: CircularProgressIndicator(color: AppColors.gold),
               )
+            : _loadFailed
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Yedekler yüklenemedi.'),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: _load,
+                      child: const Text('Tekrar dene'),
+                    ),
+                  ],
+                ),
+              )
             : _backups.isEmpty
             ? const Center(child: Text('Henüz yedek oluşturulmadı.'))
             : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                 itemCount: _backups.length,
                 itemBuilder: (context, index) {
-                  final file = _backups[index];
+                  final entry = _backups[index];
+                  final file = entry.file;
                   return Card(
                     color: AppColors.surface,
                     child: ListTile(
                       leading: const Icon(Icons.storage, color: AppColors.gold),
                       title: Text('Yedek ${_backups.length - index}'),
-                      subtitle: Text(_label(file)),
+                      subtitle: Text(_label(entry)),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
                             tooltip: 'Paylaş',
-                            onPressed: () => _shareBackup(file),
+                            onPressed: entry.isAvailable
+                                ? () => _shareBackup(file)
+                                : null,
                             icon: const Icon(Icons.share_outlined),
                           ),
                           TextButton(
-                            onPressed: () => _restore(file),
+                            onPressed: entry.isAvailable
+                                ? () => _restore(file)
+                                : null,
                             child: const Text('Geri yükle'),
                           ),
                         ],

@@ -59,7 +59,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-11-03: 152 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-11-03: 160 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 **Telefonunda dene:** [başarılı CI çalışmasından](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml) `barberbook-demo-debug` ZIP'ini indir. İki debug APK ve `SHA256SUMS.txt` birlikte sunulur; demo asıl uygulamadan ayrı kurulur. [İndirme ve dosya doğrulama](docs/ci.md) · [Gerçek telefon kabul planı ve sonuç formu](docs/device-acceptance.md).
 
@@ -81,6 +81,8 @@ Yedek oluşturulunca, dosya geri yükleme kurallarıyla doğrulanır. Veritaban�
 Normal randevu kaydında alarm kurulamazsa uyarı ve yeniden deneme sunulur. Aynı dakikadaki randevular, native paketin aynı saniyeyi değiştirme davranışı nedeniyle dakika içinde ayrı saniyelere dağıtılır; saat alanı dakika çözünürlüğündedir.
 
 [Kesinti kurtarma tasarımı ve testleri](docs/recovery-2026-10-31.md) · [Mimari ve teknik kararlar](docs/architecture.md) · [Son düzeltmelerin doğrulaması](docs/followup-acceptance-2026-10-31.md)
+
+Yedek listesi okunamazsa hata ve yeniden deneme sunulur. Dosya seçimi/paylaşımı sırasında çift işlem engellenir; okunamayan dosya satırları yenilenebilir. [Dosya hataları ve regresyon testleri](docs/backup-file-actions-2026-11-03.md).
 
 ## WhatsApp davranışı
 

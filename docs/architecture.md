@@ -30,3 +30,5 @@ flowchart TD
 ## Doğrulama
 
 Gerçek geçici SQLite ile migration, transaction rollback, kasa ve yedek testleri; kritik formlar için widget testleri; geciktirilmiş Future'larla arama sırası ve native kuyruk kontrolleri çalıştırılır. GitHub CI format, analyzer, tam Flutter testleri ve ARM64/x86_64 debug APK üretimini denetler.
+
+[CI bakım kararı](ci.md): action'lar doğrulanmış commit'lere bağlanır; Ubuntu 24.04 ailesi, Java 17 ve kontrol edilen Flutter commit'i kullanılır. İki demo APK'nın SHA-256 listesi artifact ve iş özetine yazılır. [Fiziksel kabul formu](device-acceptance.md) otomatik kontrol sonucundan ayrı tutulur.

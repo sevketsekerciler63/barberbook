@@ -61,6 +61,8 @@ flutter build apk --debug --target-platform android-x64 --split-per-abi
 
 2026-11-03: 152 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
+**Telefonunda dene:** [başarılı CI çalışmasından](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml) `barberbook-demo-debug` ZIP'ini indir. İki debug APK ve `SHA256SUMS.txt` birlikte sunulur; demo asıl uygulamadan ayrı kurulur. [İndirme ve dosya doğrulama](docs/ci.md) · [Gerçek telefon kabul planı ve sonuç formu](docs/device-acceptance.md).
+
 ## Günlük kullanım
 
 1. Hizmetleri ve çalışma saatlerini yönetim menüsünden düzenleyin.

@@ -11,6 +11,8 @@ class CashReport {
   final int refundedTipCents;
   final int waivedDebtCents;
   final int refundCount;
+  final int reversedCollectionCents;
+  final int collectionReversalCount;
   final Map<PaymentMethod, int> byMethod;
 
   const CashReport({
@@ -23,10 +25,13 @@ class CashReport {
     this.refundedTipCents = 0,
     this.waivedDebtCents = 0,
     this.refundCount = 0,
+    this.reversedCollectionCents = 0,
+    this.collectionReversalCount = 0,
     required this.byMethod,
   });
 
-  int get netServiceCents => collectedCents - refundedCents;
+  int get netServiceCents =>
+      collectedCents - refundedCents - reversedCollectionCents;
   int get netTipCents => tipCents - refundedTipCents;
   int get netCashCents => netServiceCents + netTipCents;
 
@@ -43,6 +48,8 @@ class CashReport {
     var refundedTips = 0;
     var waived = 0;
     var refunds = 0;
+    var reversedCollections = 0;
+    var collectionReversals = 0;
     final byMethod = <PaymentMethod, int>{};
 
     for (final payment in payments) {
@@ -76,6 +83,16 @@ class CashReport {
         }
         continue;
       }
+      if (transaction.reversesTransactionId != null) {
+        reversedCollections += transaction.amountCents;
+        collectionReversals++;
+        byMethod.update(
+          transaction.method,
+          (value) => value - transaction.amountCents,
+          ifAbsent: () => -transaction.amountCents,
+        );
+        continue;
+      }
       collected += transaction.amountCents;
       count++;
       byMethod.update(
@@ -95,6 +112,8 @@ class CashReport {
       refundedTipCents: refundedTips,
       waivedDebtCents: waived,
       refundCount: refunds,
+      reversedCollectionCents: reversedCollections,
+      collectionReversalCount: collectionReversals,
       byMethod: Map.unmodifiable(byMethod),
     );
   }

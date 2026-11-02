@@ -292,6 +292,15 @@ class _CashReportScreenState extends State<CashReportScreen> {
           Row(
             children: [
               _metric(
+                'Tahsilat geri alma',
+                report.reversedCollectionCents,
+                Icons.undo,
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              _metric(
                 'Bahşiş',
                 report.tipCents,
                 Icons.volunteer_activism_outlined,
@@ -306,7 +315,7 @@ class _CashReportScreenState extends State<CashReportScreen> {
           const Padding(
             padding: EdgeInsets.all(8),
             child: Text(
-              'İadeler yapıldıkları gün düşülür; eski tahsilat silinmez. Net hizmet = tahsilat − hizmet iadesi. Açık veresiye, tarih aralığından bağımsız güncel bakiyedir.',
+              'İadeler yapıldıkları gün düşülür; eski tahsilat silinmez. Net hizmet = tahsilat − hizmet iadesi − tahsilat geri alma. Açık veresiye, tarih aralığından bağımsız güncel bakiyedir.',
             ),
           ),
           Row(

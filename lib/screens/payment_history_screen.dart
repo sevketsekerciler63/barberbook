@@ -276,6 +276,17 @@ class _PaymentAccountScreenState extends State<PaymentAccountScreen> {
 
   Future<void> _reverse(PaymentTransaction original) async {
     if (_busy || _pending != null) return;
+    if (original.type == PaymentTransactionType.collection &&
+        original.amountCents > (_account?.refundableServiceCents ?? 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Bu tahsilatın bir kısmı iade edilmiş. Önce ilgili iadeyi geri alın.',
+          ),
+        ),
+      );
+      return;
+    }
     setState(() => _busy = true);
     try {
       final request = await showPaymentReversalDialog(context, original);
@@ -377,14 +388,16 @@ class _PaymentAccountScreenState extends State<PaymentAccountScreen> {
                       child: ListTile(
                         trailing:
                             movement.id != null &&
-                                movement.type !=
-                                    PaymentTransactionType.collection &&
                                 movement.reversesTransactionId == null &&
                                 !account.transactions.any(
                                   (t) => t.reversesTransactionId == movement.id,
                                 )
                             ? IconButton(
-                                tooltip: 'Bu düzeltmeyi geri al',
+                                tooltip:
+                                    movement.type ==
+                                        PaymentTransactionType.collection
+                                    ? 'Tahsilatı geri al'
+                                    : 'Bu düzeltmeyi geri al',
                                 icon: const Icon(Icons.undo),
                                 onPressed: _busy || _pending != null
                                     ? null

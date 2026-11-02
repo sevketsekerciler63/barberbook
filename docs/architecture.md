@@ -3,7 +3,7 @@
 ```mermaid
 flowchart TD
   UI[Flutter ekranları] --> DB[DatabaseService: atomik işlemler]
-  DB --> SQL[(Cihazda SQLite v13)]
+  DB --> SQL[(Cihazda SQLite v14)]
   UI --> Photo[CustomerPhotoStorage]
   Photo --> Files[Cihazın özel fotoğraf alanı]
   UI --> Alarm[NotificationService: seri native kuyruk]
@@ -23,6 +23,7 @@ flowchart TD
 - **Kesinti kurtarma:** veritabanı açılmadan önce kalıcı geri yükleme kaydı denetlenir. Tamamlanmamış değişim eski DB/fotoğraf grubuna döner; yeni DB'nin WAL/journal dosyaları eski gruba karışmaz. Onaylanmış değişim yeni veriyi tutar. Bozuk kurtarma kaydında dosyalar korunur, sessiz boş DB oluşturulmaz. Normal bağlantılar bakım işleminin bitmesini bekler.
 - **Yedek:** kapalı SQLite dosyasından ayrı snapshot alınır. Fotoğraflar, referanslar ve manifest doğrulanır; yeni dosya geri yükleme doğrulamasını geçmeden başarılı sayılmaz. Eksik fotoğrafı dışlama yalnız açık onayla, snapshot üzerinde yapılır. Geri yüklemede önce güvenlik yedeği alınır. Alarm eşlemesi veri geri geldikten sonra yapılır; native alarm hatası restore edilmiş veriyi geri almaz.
 - **Yedek dosya ekranı:** native dosya seçimi/paylaşımı tek işlem olarak korunur, hata ve geç yanıtlar ele alınır. Dosya metadata'sı çizimden önce asenkron alınır; kullanılamayan dosya görünür ve yenilenebilir. Liste yükleme hatası boş liste sayılmaz.
+- **Tahsilat geri alma:** net tahsilatı azaltır ve borcu yeniden açar; normal para iadesinden ayrıdır. Aynı işlem kimliği ile tahsilat tekrarı deduplike edilir, ters hareket tekildir. v14 sürüm kapısı eski okuyucunun ters tahsilatı gelir saymasını engeller. [Kurallar](collection-corrections.md).
 - **Asenkron ekranlar:** en son arama/tarih isteği kazanır. Eski sonuçlar, eski hatalar ve kapanmış ekranın yanıtları uygulanmaz. CSV, raporuyla aynı yakalanmış tarih aralığını kullanır.
 - **Alarmlar:** native değişiklikler sıraya alınır. Aynı dakikadaki alarmlar ayrı saniyelere ayrılır; 60 saniye içinde yer bulunamazsa başarısızlık görünür. Android'in güç yönetimi ve izinleri sonucu etkileyebilir; emülatör kontrolü üretici bazlı saha kabulünün yerini tutmaz.
 - **WhatsApp geçmişi:** atlama/açma, kayıt oluşturulma zamanı + randevu saati + alıcı kimliğine bağlanır. Eski ID tabanlı tercihler UI açılmadan taşınır; geçmiş yazımları seri yapılır. Harici bağlantı öncesi güncel kayıt kontrol edilir. Mesaj teslimatı izlenmez.

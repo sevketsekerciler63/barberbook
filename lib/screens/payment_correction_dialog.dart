@@ -35,14 +35,22 @@ class _ReversalDialogState extends State<_ReversalDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Düzeltmeyi geri al'),
+    title: Text(
+      widget.original.type == PaymentTransactionType.collection
+          ? 'Tahsilatı geri al'
+          : 'Düzeltmeyi geri al',
+    ),
     content: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             '${(widget.original.amountCents / 100).toStringAsFixed(2)} ₺ tutarındaki hareket geçmişten silinmez. '
-            '${widget.original.type == PaymentTransactionType.refund ? 'İade geri alınır; net tahsilat artar. Para geri alındıysa kaydedin.' : 'Borçtan düşme geri alınır; müşterinin açık borcu bu tutarda artar.'}',
+            '${switch (widget.original.type) {
+              PaymentTransactionType.refund => 'İade geri alınır; net tahsilat artar. Para geri alındıysa kaydedin.',
+              PaymentTransactionType.adjustment => 'Borçtan düşme geri alınır; müşterinin açık borcu bu tutarda artar.',
+              PaymentTransactionType.collection => 'Tahsilat kaydı geri alınır; net tahsilat azalır ve aynı tutar yeniden açık borç olur. Yanlış girilmiş tahsilatı düzeltmek içindir. Normal para iadesi borcu yeniden açmaz.',
+            }}',
           ),
           TextField(
             controller: _reason,

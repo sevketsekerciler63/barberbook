@@ -15,7 +15,7 @@ void main() {
   tearDown(isolation.tearDown);
 
   test(
-    'v7 database upgrades to v13 with payment records enabled by default',
+    'v7 database upgrades to v14 with payment records enabled by default',
     () async {
       final legacyDatabase = await openDatabase(
         isolation.databasePath,
@@ -129,7 +129,7 @@ void main() {
 
       final upgradedDatabase = await DatabaseService.instance.database;
 
-      expect(await upgradedDatabase.getVersion(), 13);
+      expect(await upgradedDatabase.getVersion(), 14);
       expect(
         await _tableNames(upgradedDatabase),
         containsAll(<String>[
@@ -203,7 +203,7 @@ void main() {
       final upgradedDatabase = await DatabaseService.instance.database;
       final settings = (await upgradedDatabase.query('shop_settings')).single;
 
-      expect(await upgradedDatabase.getVersion(), 13);
+      expect(await upgradedDatabase.getVersion(), 14);
       expect(settings['appointmentCapacity'], 3);
       expect(settings['paymentEnabled'], 1);
     },

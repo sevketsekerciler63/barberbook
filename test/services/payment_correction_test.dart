@@ -333,7 +333,7 @@ void main() {
       await connection.setVersion(12);
       await db.closeDatabase();
       final upgraded = await db.database;
-      expect(await upgraded.getVersion(), 13);
+      expect(await upgraded.getVersion(), 14);
       final state = (await db.getPaymentAccount(id))!;
       expect(state.outstandingCents, 40000);
       expect(state.transactions.single.tipCents, 0);
@@ -351,7 +351,7 @@ void main() {
       final backup = await BackupService.instance.createBackup();
       expect(
         (await BackupService.instance.previewBackup(backup)).schemaVersion,
-        13,
+        14,
       );
       await db.recordPaymentCorrection(correction(id, 1000, key: 'later'));
       await BackupService.instance.restoreBackup(backup);

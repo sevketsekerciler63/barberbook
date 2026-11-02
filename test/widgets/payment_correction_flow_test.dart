@@ -305,4 +305,49 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets(
+    'collection reversal explains the reopened debt and preserves the original movement',
+    (tester) async {
+      final original = PaymentTransaction(
+        id: 8,
+        appointmentId: 42,
+        type: PaymentTransactionType.collection,
+        amountCents: 10000,
+        method: PaymentMethod.card,
+        occurredAt: DateTime(2026, 11, 3),
+      );
+      PaymentTransaction? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => FilledButton(
+                onPressed: () async {
+                  result = await showPaymentReversalDialog(context, original);
+                },
+                child: const Text('Tahsilat iptal'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Tahsilat iptal'));
+      await tester.pumpAndSettle();
+      expect(find.text('Tahsilatı geri al'), findsOneWidget);
+      expect(
+        find.textContaining('aynı tutar yeniden açık borç olur'),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        field('Geri alma gerekçesi (zorunlu)'),
+        'Yanlış ödeme yöntemi',
+      );
+      await tester.tap(find.text('Geri alma hareketini kaydet'));
+      await tester.pumpAndSettle();
+      expect(result!.reversesTransactionId, 8);
+      expect(result!.type, PaymentTransactionType.collection);
+      expect(result!.amountCents, 10000);
+      expect(result!.method, PaymentMethod.card);
+    },
+  );
 }

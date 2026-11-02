@@ -21,7 +21,7 @@ class PaymentAccount {
   int get appointmentId => payment.appointmentId;
   int get collectionsCents => transactions
       .where((t) => t.type == PaymentTransactionType.collection)
-      .fold(0, (sum, t) => sum + t.amountCents);
+      .fold(0, (sum, t) => sum + t.direction * t.amountCents);
   int get refundedServiceCents => transactions
       .where((t) => t.type == PaymentTransactionType.refund)
       .fold(0, (sum, t) => sum + t.direction * t.serviceCents);

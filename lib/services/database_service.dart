@@ -16,7 +16,7 @@ import '../models/receivable.dart';
 import '../models/payment_account.dart';
 
 class DatabaseService {
-  static const schemaVersion = 13;
+  static const schemaVersion = 14;
   static Database? _database;
   Future<Database>? _opening;
   Future<void>? _maintenance;
@@ -416,6 +416,8 @@ class DatabaseService {
       }
     }
     if (oldVersion < 13) await _ensureCorrectionColumns(db);
+    // v14 keeps the v13 layout. The version gate prevents v13 readers from
+    // treating reversed collections as new incoming cash.
   }
 
   // ==================== PAYMENT CRUD ====================
@@ -504,8 +506,21 @@ class DatabaseService {
   }
 
   Future<int> recordPaymentTransaction(PaymentTransaction transaction) async {
+    if (transaction.type != PaymentTransactionType.collection) {
+      throw StateError('Bu aşamada yalnız tahsilat hareketi destekleniyor.');
+    }
+    if (transaction.method == PaymentMethod.credit) {
+      throw StateError('Veresiye bir tahsilat yöntemi değildir.');
+    }
+    if (transaction.reversesTransactionId != null ||
+        transaction.tipCents != 0) {
+      throw StateError('Tahsilat bu alanlarla kaydedilemez.');
+    }
+
     final db = await database;
     return db.transaction((txn) async {
+      final previous = await _existingOperation(txn, transaction);
+      if (previous != null) return previous;
       final paymentRows = await txn.query(
         'payments',
         columns: ['amountCents', 'status'],
@@ -519,17 +534,6 @@ class DatabaseService {
       if (paymentRows.first['status'] != PaymentStatus.pending.value) {
         throw StateError('Yalnız açık veresiye için tahsilat girilebilir.');
       }
-      if (transaction.type != PaymentTransactionType.collection) {
-        throw StateError('Bu aşamada yalnız tahsilat hareketi destekleniyor.');
-      }
-      if (transaction.method == PaymentMethod.credit) {
-        throw StateError('Veresiye bir tahsilat yöntemi değildir.');
-      }
-      if (transaction.reversesTransactionId != null ||
-          transaction.tipCents != 0) {
-        throw StateError('Tahsilat bu alanlarla kaydedilemez.');
-      }
-
       final account = await _getPaymentAccount(txn, transaction.appointmentId);
       if (transaction.amountCents > account!.outstandingCents) {
         throw StateError('Tahsilat açık veresiye tutarını aşamaz.');
@@ -539,6 +543,38 @@ class DatabaseService {
         transaction.toMap()..remove('id'),
       );
     });
+  }
+
+  Future<int?> _existingOperation(
+    DatabaseExecutor db,
+    PaymentTransaction request,
+  ) async {
+    final key = request.operationId;
+    if (key == null) return null;
+    if (key.trim().isEmpty || key.length > 120) {
+      throw ArgumentError('Geçersiz işlem kimliği.');
+    }
+    final rows = await db.query(
+      'payment_transactions',
+      where: 'operationId=?',
+      whereArgs: [key],
+    );
+    if (rows.isEmpty) return null;
+    final original = PaymentTransaction.fromMap(rows.single);
+    final note = request.note?.trim();
+    final normalizedNote = note == null || note.isEmpty ? null : note;
+    if (original.appointmentId != request.appointmentId ||
+        original.type != request.type ||
+        original.amountCents != request.amountCents ||
+        original.tipCents != request.tipCents ||
+        original.method != request.method ||
+        original.reversesTransactionId != request.reversesTransactionId ||
+        original.note != normalizedNote) {
+      throw StateError(
+        'İşlem kimliği farklı bir ödeme hareketinde kullanılmış.',
+      );
+    }
+    return original.id!;
   }
 
   Future<PaymentAccount?> _getPaymentAccount(
@@ -609,7 +645,7 @@ class DatabaseService {
     });
   }
 
-  /// Refunds cash or writes off unpaid debt without rewriting the original row.
+  /// Appends a refund, debt write-off or reversal without rewriting history.
   Future<int> recordPaymentCorrection(PaymentTransaction correction) async {
     final key = correction.operationId;
     final note = correction.note?.trim() ?? '';
@@ -622,33 +658,15 @@ class DatabaseService {
         'İşlem kimliği ve en fazla 250 karakterlik gerekçe zorunludur.',
       );
     }
-    if (correction.type == PaymentTransactionType.collection ||
+    if ((correction.type == PaymentTransactionType.collection &&
+            correction.reversesTransactionId == null) ||
         correction.method == PaymentMethod.credit) {
       throw ArgumentError('Geçersiz düzeltme türü veya ödeme yöntemi.');
     }
     final db = await database;
     return db.transaction((txn) async {
-      final prior = await txn.query(
-        'payment_transactions',
-        where: 'operationId=?',
-        whereArgs: [key],
-      );
-      if (prior.isNotEmpty) {
-        final original = PaymentTransaction.fromMap(prior.single);
-        if (original.appointmentId != correction.appointmentId ||
-            original.type != correction.type ||
-            original.amountCents != correction.amountCents ||
-            original.tipCents != correction.tipCents ||
-            original.reversesTransactionId !=
-                correction.reversesTransactionId ||
-            original.method != correction.method ||
-            original.note != note) {
-          throw StateError(
-            'İşlem kimliği başka bir düzeltme için kullanılmış.',
-          );
-        }
-        return original.id!;
-      }
+      final previous = await _existingOperation(txn, correction);
+      if (previous != null) return previous;
       final account = await _getPaymentAccount(txn, correction.appointmentId);
       if (account == null || !account.supportsCorrections) {
         throw StateError('Düzeltilebilir ödeme kaydı bulunamadı.');
@@ -683,6 +701,13 @@ class DatabaseService {
         );
         if (reversals.isNotEmpty) {
           throw StateError('Bu düzeltme zaten geri alınmış.');
+        }
+        if (original.type == PaymentTransactionType.collection &&
+            (account.payment.status != PaymentStatus.pending ||
+                original.amountCents > account.refundableServiceCents)) {
+          throw StateError(
+            'İade edilmiş tahsilat geri alınamaz. Önce ilgili iadeyi geri alın veya geçmişi kontrol edin.',
+          );
         }
         return txn.insert(
           'payment_transactions',
@@ -740,12 +765,12 @@ class DatabaseService {
         a.appointmentDate AS appointmentDate,
         p.amountCents AS originalAmountCents,
         COALESCE(SUM(
-          CASE WHEN t.type = 'collection' THEN t.amountCents ELSE 0 END
+          CASE WHEN t.type = 'collection' THEN t.amountCents * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END
         ), 0) AS collectedCents,
         COALESCE(SUM(CASE WHEN t.type = 'refund' THEN (t.amountCents - t.tipCents) * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END), 0) AS refundedCents,
         COALESCE(SUM(CASE WHEN t.type = 'adjustment' THEN t.amountCents * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END), 0) AS waivedCents,
         p.amountCents - COALESCE(SUM(
-          CASE WHEN t.type = 'collection' THEN t.amountCents WHEN t.type = 'adjustment' THEN t.amountCents * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END
+          CASE WHEN t.type IN ('collection', 'adjustment') THEN t.amountCents * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END
         ), 0) AS outstandingCents
       FROM payments p
       INNER JOIN appointments a ON a.id = p.appointmentId

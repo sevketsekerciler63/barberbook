@@ -1042,6 +1042,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_paymentEnabled &&
                 !_isSearching &&
                 (_cashReport.collectedCents != 0 ||
+                    _cashReport.reversedCollectionCents != 0 ||
                     _cashReport.refundedCents != 0 ||
                     _cashReport.tipCents != 0 ||
                     _cashReport.refundedTipCents != 0))

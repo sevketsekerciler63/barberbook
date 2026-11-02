@@ -223,7 +223,18 @@ class _PaymentAccountScreenState extends State<PaymentAccountScreen> {
         ),
       );
       if (confirmed != true || !mounted) return;
-      _pending = request;
+      final confirmedAt = DateTime.now();
+      _pending = PaymentTransaction(
+        appointmentId: request.appointmentId,
+        type: request.type,
+        amountCents: request.amountCents,
+        tipCents: request.tipCents,
+        method: request.method,
+        note: request.note,
+        operationId: request.operationId,
+        occurredAt: confirmedAt,
+        createdAt: confirmedAt,
+      );
       await _save();
     } finally {
       if (mounted) setState(() => _busy = false);

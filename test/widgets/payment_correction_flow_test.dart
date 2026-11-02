@@ -72,7 +72,10 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> confirmRefund(WidgetTester tester) async {
+  Future<void> confirmRefund(
+    WidgetTester tester, {
+    void Function(DateTime)? beforeConfirm,
+  }) async {
     await tester.tap(find.widgetWithText(FilledButton, 'Para iadesi'));
     await tester.pumpAndSettle();
     await tester.enterText(field('Hizmet iadesi (₺)'), '100');
@@ -80,6 +83,7 @@ void main() {
     await tester.tap(find.text('Devam'));
     await tester.pumpAndSettle();
     expect(find.text('Para iadesini kaydet'), findsOneWidget);
+    beforeConfirm?.call(DateTime.now());
     await tester.tap(find.text('Onayla ve kaydet'));
     await tester.pumpAndSettle();
   }
@@ -183,12 +187,22 @@ void main() {
         ),
       );
       await tester.pump();
-      await confirmRefund(tester);
+      DateTime? confirmationStarted;
+      await confirmRefund(
+        tester,
+        beforeConfirm: (value) => confirmationStarted = value,
+      );
+      expect(
+        ledger.requests.first.occurredAt.isBefore(confirmationStarted!),
+        isFalse,
+      );
+      expect(ledger.requests.first.createdAt, ledger.requests.first.occurredAt);
       expect(find.text('Aynı işlemi yeniden dene'), findsOneWidget);
       await tester.tap(find.text('Aynı işlemi yeniden dene'));
       await tester.pumpAndSettle();
       expect(ledger.requests, hasLength(2));
       expect(ledger.requests[0].operationId, ledger.requests[1].operationId);
+      expect(ledger.requests[0].occurredAt, ledger.requests[1].occurredAt);
       expect(find.text('Düzeltme hareketi kaydedildi.'), findsOneWidget);
       expect(
         find.textContaining('Kalan hizmet iadesi: 400.00'),

@@ -1,9 +1,12 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/appointment.dart';
 import '../models/customer.dart';
 import '../services/database_service.dart';
+import 'serial_task_queue.dart';
 
 /// Opens prepared WhatsApp messages; it cannot verify message delivery.
 class WhatsAppService {
@@ -21,7 +24,9 @@ class WhatsAppService {
   // Keys for SharedPreferences
   static const String _keyAutoReminder = 'wp_auto_reminder';
   static const String _keyReminderMinutes = 'wp_reminder_minutes';
-  static const String _keyHandledReminders = 'wp_sent_reminders';
+  static const String _keyLegacyHandledReminders = 'wp_sent_reminders';
+  static const String _keyHandledReminders = 'wp_handled_reminders_v2';
+  static final _historyQueue = SerialTaskQueue();
   static const String _keyBusinessName = 'wp_business_name';
   static const String _keyCustomMessage = 'wp_custom_message';
 
@@ -84,28 +89,62 @@ class WhatsAppService {
 
   // ==================== HANDLED REMINDERS ====================
 
-  // Keep the legacy preference key so previously handled reminders stay dismissed.
-
-  /// Track reminders opened in WhatsApp or explicitly skipped by the user.
-  Future<Set<String>> _getHandledReminders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList(_keyHandledReminders) ?? [];
-    return list.toSet();
+  // Include record creation and booking time: SQLite IDs can recur after restore.
+  // Store a digest rather than phone numbers or names in preferences.
+  String _reminderKey(Appointment appointment, Customer customer, String type) {
+    final identity = jsonEncode([
+      appointment.id,
+      appointment.createdAt.toIso8601String(),
+      appointment.fullDateTime.toIso8601String(),
+      customer.id,
+      customer.createdAt.toIso8601String(),
+      _formatPhoneForWhatsApp(customer.phone ?? ''),
+      type,
+    ]);
+    return 'v2:${sha256.convert(utf8.encode(identity))}';
   }
 
-  Future<void> _markReminderHandled(int appointmentId, String type) async {
+  /// Bind old ID-only dismissals before the UI allows rescheduling or restore.
+  /// This must run at startup; lazy migration after replacing the DB would bind
+  /// the old dismissal to the wrong record. The v2 list is the completion marker.
+  Future<void> prepareReminderHistory() => _historyQueue.run(() async {
     final prefs = await SharedPreferences.getInstance();
-    final list = prefs.getStringList(_keyHandledReminders) ?? [];
-    final key = '${appointmentId}_$type';
-    if (!list.contains(key)) {
-      list.add(key);
-      await prefs.setStringList(_keyHandledReminders, list);
+    if (prefs.containsKey(_keyHandledReminders)) return;
+    final legacy = prefs.getStringList(_keyLegacyHandledReminders) ?? [];
+    final migrated = <String>{};
+    if (legacy.isNotEmpty) {
+      final typesById = <int, Set<String>>{};
+      for (final oldKey in legacy) {
+        final separator = oldKey.indexOf('_');
+        if (separator < 1) continue;
+        final id = int.tryParse(oldKey.substring(0, separator));
+        final type = oldKey.substring(separator + 1);
+        if (id != null && type.isNotEmpty) {
+          (typesById[id] ??= <String>{}).add(type);
+        }
+      }
+      final db = DatabaseService.instance;
+      for (final entry in typesById.entries) {
+        final appointment = await db.getAppointmentById(entry.key);
+        if (appointment == null || appointment.customerId == null) continue;
+        final customer = await db.getCustomerById(appointment.customerId!);
+        if (customer == null) continue;
+        for (final type in entry.value) {
+          migrated.add(_reminderKey(appointment, customer, type));
+        }
+      }
     }
-  }
+    if (!await prefs.setStringList(_keyHandledReminders, migrated.toList())) {
+      throw StateError('Hatırlatma geçmişi kaydedilemedi.');
+    }
+    // Only remove the source after the complete replacement was persisted.
+    await prefs.remove(_keyLegacyHandledReminders);
+  });
 
-  Future<bool> _isReminderHandled(int appointmentId, String type) async {
-    final sent = await _getHandledReminders();
-    return sent.contains('${appointmentId}_$type');
+  Future<Set<String>> _getHandledReminders() async {
+    await prepareReminderHistory();
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_keyHandledReminders) ?? []).toSet();
   }
 
   // ==================== MESSAGE GENERATION ====================
@@ -207,15 +246,17 @@ class WhatsAppService {
     if (!isEnabled) return [];
 
     final reminderMinutes = await getReminderMinutes();
+    final handled = await _getHandledReminders();
     final now = DateTime.now();
     final db = DatabaseService.instance;
+    final revision = db.dataRevision;
     final upcoming = await db.getUpcomingAppointments();
 
     final List<AppointmentReminder> pendingReminders = [];
 
     for (final appointment in upcoming) {
       if (appointment.id == null || appointment.customerId == null) continue;
-      if (appointment.isCompleted) continue;
+      if (!appointment.isActive) continue;
 
       final customer = await db.getCustomerById(appointment.customerId!);
       if (customer == null ||
@@ -229,8 +270,9 @@ class WhatsAppService {
           ? 'auto_night_before'
           : 'auto_${reminderMinutes}m';
 
-      // Check if already sent
-      if (await _isReminderHandled(appointment.id!, reminderType)) continue;
+      if (handled.contains(_reminderKey(appointment, customer, reminderType))) {
+        continue;
+      }
 
       bool shouldSend = false;
 
@@ -269,26 +311,62 @@ class WhatsAppService {
       }
     }
 
-    return pendingReminders;
+    return revision == db.dataRevision ? pendingReminders : [];
   }
 
   /// Open a reminder and dismiss it only if the external app launch succeeded.
   /// Success means the prepared message was opened, never that it was sent.
   Future<bool> openReminder(AppointmentReminder reminder) async {
+    await prepareReminderHistory();
     final phone = reminder.customer.phone;
     final id = reminder.appointment.id;
     if (id == null || phone == null || phone.trim().isEmpty) return false;
+    // A dialog can outlive an edit, cancellation or a restored database.
+    final db = DatabaseService.instance;
+    final revision = db.dataRevision;
+    final current = await db.getAppointmentById(id);
+    if (current == null ||
+        !current.isActive ||
+        current.customerId == null ||
+        !current.fullDateTime.isAfter(DateTime.now())) {
+      return false;
+    }
+    final customer = await db.getCustomerById(current.customerId!);
+    if (customer == null ||
+        revision != db.dataRevision ||
+        _reminderKey(current, customer, reminder.reminderType) !=
+            _reminderKey(
+              reminder.appointment,
+              reminder.customer,
+              reminder.reminderType,
+            )) {
+      return false;
+    }
     final opened = await sendWhatsAppMessage(
       phone: phone,
       message: reminder.message,
     );
-    if (opened) await markAsHandled(id, reminder.reminderType);
+    if (opened) await markAsHandled(reminder);
     return opened;
   }
 
   /// Dismiss a reminder after opening or explicitly skipping it.
-  Future<void> markAsHandled(int appointmentId, String reminderType) async {
-    await _markReminderHandled(appointmentId, reminderType);
+  Future<void> markAsHandled(AppointmentReminder reminder) async {
+    await prepareReminderHistory();
+    await _historyQueue.run(() async {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = (prefs.getStringList(_keyHandledReminders) ?? []).toSet();
+      keys.add(
+        _reminderKey(
+          reminder.appointment,
+          reminder.customer,
+          reminder.reminderType,
+        ),
+      );
+      if (!await prefs.setStringList(_keyHandledReminders, keys.toList())) {
+        throw StateError('Hatırlatma seçimi kaydedilemedi.');
+      }
+    });
   }
 }
 

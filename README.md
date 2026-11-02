@@ -59,7 +59,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-10-31: 141 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-11-03: 152 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 ## Günlük kullanım
 
@@ -83,6 +83,8 @@ Normal randevu kaydında alarm kurulamazsa uyarı ve yeniden deneme sunulur. Ayn
 ## WhatsApp davranışı
 
 Toplu kampanya ekranı kaldırıldı; müşteri bazlı manuel mesaj ve uygulama içi randevu hatırlatması korunur. Hazır mesajın bağlantısı dış uygulamada açılır; mesajı göndermeyi kullanıcı tamamlar. Açma başarısızsa hatırlatma beklemede kalır. Başarılı bağlantı açma, mesajın gönderildiğini veya teslim edildiğini kanıtlamaz. WhatsApp hatırlatma kontrolü uygulama açıkken çalışır; yerel randevu alarmı ayrı bir özelliktir.
+
+Atla/açma seçimi belirli randevu kaydı, saat ve alıcıya bağlanır. Saat veya telefon değişirse yeni hatırlatma oluşur; eski seçimler yükseltmede korunur. İptal edilmiş/silinmiş veya bilgileri değişmiş randevunun eski penceresi mesaj açmaz. [Geçiş ve regresyon testleri](docs/reminders-2026-11-03.md).
 
 ## Veri ve güvenlik notları
 

@@ -24,6 +24,7 @@ flowchart TD
 - **Yedek:** kapalı SQLite dosyasından ayrı snapshot alınır. Fotoğraflar, referanslar ve manifest doğrulanır; yeni dosya geri yükleme doğrulamasını geçmeden başarılı sayılmaz. Eksik fotoğrafı dışlama yalnız açık onayla, snapshot üzerinde yapılır. Geri yüklemede önce güvenlik yedeği alınır. Alarm eşlemesi veri geri geldikten sonra yapılır; native alarm hatası restore edilmiş veriyi geri almaz.
 - **Asenkron ekranlar:** en son arama/tarih isteği kazanır. Eski sonuçlar, eski hatalar ve kapanmış ekranın yanıtları uygulanmaz. CSV, raporuyla aynı yakalanmış tarih aralığını kullanır.
 - **Alarmlar:** native değişiklikler sıraya alınır. Aynı dakikadaki alarmlar ayrı saniyelere ayrılır; 60 saniye içinde yer bulunamazsa başarısızlık görünür. Android'in güç yönetimi ve izinleri sonucu etkileyebilir; emülatör kontrolü üretici bazlı saha kabulünün yerini tutmaz.
+- **WhatsApp geçmişi:** atlama/açma, kayıt oluşturulma zamanı + randevu saati + alıcı kimliğine bağlanır. Eski ID tabanlı tercihler UI açılmadan taşınır; geçmiş yazımları seri yapılır. Harici bağlantı öncesi güncel kayıt kontrol edilir. Mesaj teslimatı izlenmez.
 - **Dağıtım:** açık portföy kopyasında ticari lisans/üretici/destek kodu bulunmaz. Üretim imzası ve özel ticari sürüm ayrı tutulur. CI debug APK'sı `com.barberbook.portfolio` kimlikli ayrı portföy denemesidir.
 
 ## Doğrulama

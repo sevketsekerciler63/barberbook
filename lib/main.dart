@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'services/notification_service.dart';
+import 'services/whatsapp_service.dart';
 import 'screens/home_screen.dart';
 import 'utils/constants.dart';
 
@@ -24,6 +25,9 @@ void main() async {
 
   // Initialize Turkish locale for date formatting
   await initializeDateFormatting('tr_TR', null);
+
+  // Bind legacy dismissals before edits, restores or native alarm callbacks.
+  await WhatsAppService.instance.prepareReminderHistory();
 
   // Initialize notification service (only on mobile)
   if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {

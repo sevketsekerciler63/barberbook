@@ -309,10 +309,7 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(
             onPressed: () async {
               // Skip this reminder
-              await WhatsAppService.instance.markAsHandled(
-                reminder.appointment.id!,
-                reminder.reminderType,
-              );
+              await WhatsAppService.instance.markAsHandled(reminder);
               if (context.mounted) Navigator.pop(context);
             },
             child: const Text(
@@ -347,7 +344,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.pop(context);
                 } else {
                   _showSnackBar(
-                    'WhatsApp açılamadı. Hatırlatma beklemeye devam ediyor.',
+                    'WhatsApp açılamadı veya randevu bilgisi değişti. Listeyi yenileyip tekrar deneyin.',
                   );
                 }
               } finally {

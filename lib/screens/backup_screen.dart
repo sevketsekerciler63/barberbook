@@ -142,7 +142,7 @@ class _BackupScreenState extends State<BackupScreen> {
       'Randevular: ${preview.appointmentCount}\n'
       'Hizmetler: ${preview.serviceCount}\n'
       'Ödemeler: ${preview.paymentCount}\n'
-      'Kasa hareketleri: ${preview.transactionCount}';
+      'Ödeme hareketleri: ${preview.transactionCount}';
 
   Future<void> _restore(File file) async {
     if (_busy || !mounted) return;

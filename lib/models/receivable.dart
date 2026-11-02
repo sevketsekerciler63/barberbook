@@ -6,6 +6,8 @@ class Receivable {
   final int originalAmountCents;
   final int collectedCents;
   final int outstandingCents;
+  final int refundedCents;
+  final int waivedCents;
 
   const Receivable({
     required this.appointmentId,
@@ -15,6 +17,8 @@ class Receivable {
     required this.originalAmountCents,
     required this.collectedCents,
     required this.outstandingCents,
+    this.refundedCents = 0,
+    this.waivedCents = 0,
   });
 
   factory Receivable.fromMap(Map<String, dynamic> map) => Receivable(
@@ -25,5 +29,7 @@ class Receivable {
     originalAmountCents: map['originalAmountCents'] as int,
     collectedCents: map['collectedCents'] as int,
     outstandingCents: map['outstandingCents'] as int,
+    refundedCents: (map['refundedCents'] as int?) ?? 0,
+    waivedCents: (map['waivedCents'] as int?) ?? 0,
   );
 }

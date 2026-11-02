@@ -4,6 +4,7 @@ import '../models/appointment.dart';
 import '../models/payment.dart';
 import '../utils/money.dart';
 import 'receivables_screen.dart';
+import 'payment_history_screen.dart';
 
 Future<Payment?> showPaymentDialog(
   BuildContext context,
@@ -40,7 +41,7 @@ Future<Payment?> showPaymentDialog(
     return null;
   }
   if (existing != null && existing.status != PaymentStatus.unknown) {
-    await showDialog<void>(
+    final openHistory = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Tahsilat zaten kayıtlı'),
@@ -52,9 +53,20 @@ Future<Payment?> showPaymentDialog(
             onPressed: () => Navigator.pop(context),
             child: const Text('Kapat'),
           ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('İade / borç düzeltme'),
+          ),
         ],
       ),
     );
+    if (openHistory == true && context.mounted) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PaymentAccountScreen(appointmentId: appointment.id!),
+        ),
+      );
+    }
     return null;
   }
   return showDialog<Payment>(

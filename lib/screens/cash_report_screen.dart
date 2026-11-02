@@ -13,6 +13,7 @@ import '../services/cash_report_csv.dart';
 import '../services/database_service.dart';
 import '../utils/constants.dart';
 import 'receivables_screen.dart';
+import 'payment_history_screen.dart';
 
 class CashReportScreen extends StatefulWidget {
   const CashReportScreen({super.key});
@@ -187,6 +188,16 @@ class _CashReportScreenState extends State<CashReportScreen> {
         title: const Text('Tahsilat raporu'),
         actions: [
           IconButton(
+            tooltip: 'Ödeme geçmişi / iade',
+            icon: const Icon(Icons.history),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PaymentHistoryScreen()),
+              );
+              if (mounted) await _load();
+            },
+          ),
+          IconButton(
             tooltip: 'Açık veresiyeler',
             icon: const Icon(Icons.account_balance_wallet_outlined),
             onPressed: () async {
@@ -270,6 +281,16 @@ class _CashReportScreenState extends State<CashReportScreen> {
           ),
           Row(
             children: [
+              _metric('Hizmet iadesi (net)', report.refundedCents, Icons.undo),
+              _metric(
+                'Net hizmet',
+                report.netServiceCents,
+                Icons.account_balance_outlined,
+              ),
+            ],
+          ),
+          Row(
+            children: [
               _metric(
                 'Bahşiş',
                 report.tipCents,
@@ -285,8 +306,36 @@ class _CashReportScreenState extends State<CashReportScreen> {
           const Padding(
             padding: EdgeInsets.all(8),
             child: Text(
-              'Bahşiş hizmet tahsilatından ayrı gösterilir. Açık veresiye, seçilen tarih aralığından bağımsız güncel bakiyedir.',
+              'İadeler yapıldıkları gün düşülür; eski tahsilat silinmez. Net hizmet = tahsilat − hizmet iadesi. Açık veresiye, tarih aralığından bağımsız güncel bakiyedir.',
             ),
+          ),
+          Row(
+            children: [
+              _metric(
+                'Bahşiş iadesi (net)',
+                report.refundedTipCents,
+                Icons.undo,
+              ),
+              _metric(
+                'Net bahşiş',
+                report.netTipCents,
+                Icons.volunteer_activism_outlined,
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              _metric(
+                'Net para hareketi',
+                report.netCashCents,
+                Icons.payments_outlined,
+              ),
+              _metric(
+                'Borçtan düşülen (para hareketi yok)',
+                report.waivedDebtCents,
+                Icons.remove_circle_outline,
+              ),
+            ],
           ),
           Card(
             color: AppColors.surface,
@@ -296,7 +345,7 @@ class _CashReportScreenState extends State<CashReportScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Ödeme yöntemleri • ${report.collectionCount} tahsilat',
+                    'Yöntemlere göre net hizmet • ${report.collectionCount} tahsilat / ${report.refundCount} iade / geri alma',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const Divider(),

@@ -7,6 +7,7 @@ import '../models/payment_transaction.dart';
 import '../models/receivable.dart';
 import '../services/database_service.dart';
 import '../utils/constants.dart';
+import 'payment_history_screen.dart';
 
 class ReceivablesScreen extends StatefulWidget {
   const ReceivablesScreen({super.key});
@@ -76,7 +77,21 @@ class _ReceivablesScreenState extends State<ReceivablesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Açık veresiyeler')),
+      appBar: AppBar(
+        title: const Text('Açık veresiyeler'),
+        actions: [
+          IconButton(
+            tooltip: 'Ödeme geçmişi / iade',
+            icon: const Icon(Icons.history),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PaymentHistoryScreen()),
+              );
+              if (mounted) await _load();
+            },
+          ),
+        ],
+      ),
       body: _loading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.gold),
@@ -110,7 +125,9 @@ class _ReceivablesScreenState extends State<ReceivablesScreen> {
                       title: Text(item.customerName),
                       subtitle: Text(
                         '${item.serviceName ?? 'Hizmet'} • ${DateFormat('dd.MM.yyyy').format(item.appointmentDate)}\n'
-                        'Toplam ${_money(item.originalAmountCents)} • Tahsil ${_money(item.collectedCents)}',
+                        'Toplam ${_money(item.originalAmountCents)} • Tahsil ${_money(item.collectedCents)}'
+                        '${item.refundedCents > 0 ? ' • İade ${_money(item.refundedCents)}' : ''}'
+                        '${item.waivedCents > 0 ? ' • Borçtan düşülen ${_money(item.waivedCents)}' : ''}',
                       ),
                       isThreeLine: true,
                       trailing: Column(

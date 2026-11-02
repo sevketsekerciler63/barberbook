@@ -12,7 +12,7 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/appointment.dart';
 import '../models/payment.dart';
-import '../models/payment_transaction.dart';
+import '../models/cash_report.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../services/whatsapp_service.dart';
@@ -28,6 +28,7 @@ import 'backup_screen.dart';
 import 'payment_dialog.dart';
 import 'cash_report_screen.dart';
 import 'receivables_screen.dart';
+import 'payment_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -44,7 +45,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _searchError;
   DateTime _selectedDate = DateTime.now();
   List<Appointment> _appointments = [];
-  PaymentSummary _paymentSummary = PaymentSummary.fromPayments(const []);
+  CashReport _cashReport = CashReport.fromEntries(
+    payments: const [],
+    transactions: const [],
+    outstandingCents: 0,
+  );
   bool _paymentEnabled = true;
   bool _isLoading = true;
   bool _showCalendar = false;
@@ -407,27 +412,12 @@ class _HomeScreenState extends State<HomeScreen> {
       load: () async {
         final settings = await Future.wait([
           _dbService.getAppointmentsByDate(date),
-          _dbService.getPaymentsForDate(date),
-          _dbService.getPaymentTransactionsForDate(date),
+          _dbService.getCashReport(date, date),
           _dbService.isPaymentEnabled(),
         ]);
         final appointments = settings[0] as List<Appointment>;
-        final payments = settings[1] as List<Payment>;
-        final transactions = settings[2] as List<PaymentTransaction>;
-        final paymentEnabled = settings[3] as bool;
-        final collectionPayments = transactions
-            .where((item) => item.type == PaymentTransactionType.collection)
-            .map(
-              (item) => Payment(
-                appointmentId: item.appointmentId,
-                amountCents: item.amountCents,
-                status: PaymentStatus.paid,
-                method: item.method,
-                paidAt: item.occurredAt,
-                note: item.note,
-                createdAt: item.createdAt,
-              ),
-            );
+        final report = settings[1] as CashReport;
+        final paymentEnabled = settings[2] as bool;
 
         final phones = await CustomerPhoneService.load(appointments);
 
@@ -440,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return (
           appointments: appointments,
-          payments: [...payments, ...collectionPayments],
+          report: report,
           phones: phones,
           paymentEnabled: paymentEnabled,
         );
@@ -449,7 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!mounted) return;
         setState(() {
           _appointments = data.appointments;
-          _paymentSummary = PaymentSummary.fromPayments(data.payments);
+          _cashReport = data.report;
           _paymentEnabled = data.paymentEnabled;
           _customerPhones
             ..clear()
@@ -783,6 +773,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     'hours' => const WorkingHoursScreen(),
                     'cash_report' => const CashReportScreen(),
                     'receivables' => const ReceivablesScreen(),
+                    'payment_history' => const PaymentHistoryScreen(),
                     'backup' => const BackupScreen(),
                     _ => const WhatsAppSettingsScreen(),
                   };
@@ -792,7 +783,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (mounted &&
                       ((value == 'backup' && changed == true) ||
                           value == 'receivables' ||
-                          value == 'cash_report')) {
+                          value == 'cash_report' ||
+                          value == 'payment_history')) {
                     await _loadAppointments();
                   }
                 },
@@ -814,6 +806,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     const PopupMenuItem(
                       value: 'receivables',
                       child: Text('Açık veresiyeler'),
+                    ),
+                  if (_paymentEnabled)
+                    const PopupMenuItem(
+                      value: 'payment_history',
+                      child: Text('Ödeme geçmişi / iade'),
                     ),
                   const PopupMenuItem(
                     value: 'backup',
@@ -1044,7 +1041,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
             if (_paymentEnabled &&
                 !_isSearching &&
-                _paymentSummary.collectedCents > 0)
+                (_cashReport.collectedCents != 0 ||
+                    _cashReport.refundedCents != 0 ||
+                    _cashReport.tipCents != 0 ||
+                    _cashReport.refundedTipCents != 0))
               Container(
                 margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
                 padding: const EdgeInsets.symmetric(
@@ -1062,7 +1062,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Bugünkü tahsilat: ${(_paymentSummary.collectedCents / 100).toStringAsFixed(2)} ₺',
+                        'Günün net hizmeti: ${(_cashReport.netServiceCents / 100).toStringAsFixed(2)} ₺ • Net bahşiş: ${(_cashReport.netTipCents / 100).toStringAsFixed(2)} ₺',
                         style: const TextStyle(
                           color: AppColors.white,
                           fontWeight: FontWeight.w600,

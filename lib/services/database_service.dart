@@ -13,8 +13,10 @@ import '../models/payment.dart';
 import '../models/payment_transaction.dart';
 import '../models/cash_report.dart';
 import '../models/receivable.dart';
+import '../models/payment_account.dart';
 
 class DatabaseService {
+  static const schemaVersion = 13;
   static Database? _database;
   Future<Database>? _opening;
   Future<void>? _maintenance;
@@ -96,7 +98,7 @@ class DatabaseService {
 
     final db = await openDatabase(
       path,
-      version: 12,
+      version: schemaVersion,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -268,6 +270,9 @@ class DatabaseService {
         appointmentId INTEGER NOT NULL,
         type TEXT NOT NULL CHECK (type IN ('collection', 'refund', 'adjustment')),
         amountCents INTEGER NOT NULL CHECK (amountCents > 0),
+        tipCents INTEGER NOT NULL DEFAULT 0 CHECK (tipCents >= 0 AND tipCents <= amountCents),
+        operationId TEXT,
+        reversesTransactionId INTEGER REFERENCES payment_transactions(id) ON DELETE RESTRICT,
         method TEXT NOT NULL,
         occurredAt TEXT NOT NULL,
         note TEXT,
@@ -282,6 +287,34 @@ class DatabaseService {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_payment_transactions_time '
       'ON payment_transactions(occurredAt, id)',
+    );
+    await _ensureCorrectionColumns(db);
+  }
+
+  Future<void> _ensureCorrectionColumns(Database db) async {
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(payment_transactions)',
+    );
+    if (!columns.any((c) => c['name'] == 'tipCents')) {
+      await db.execute(
+        'ALTER TABLE payment_transactions ADD COLUMN tipCents INTEGER NOT NULL DEFAULT 0 CHECK (tipCents >= 0 AND tipCents <= amountCents)',
+      );
+    }
+    if (!columns.any((c) => c['name'] == 'operationId')) {
+      await db.execute(
+        'ALTER TABLE payment_transactions ADD COLUMN operationId TEXT',
+      );
+    }
+    if (!columns.any((c) => c['name'] == 'reversesTransactionId')) {
+      await db.execute(
+        'ALTER TABLE payment_transactions ADD COLUMN reversesTransactionId INTEGER REFERENCES payment_transactions(id) ON DELETE RESTRICT',
+      );
+    }
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_operation ON payment_transactions(operationId)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_reversal ON payment_transactions(reversesTransactionId)',
     );
   }
 
@@ -382,6 +415,7 @@ class DatabaseService {
         );
       }
     }
+    if (oldVersion < 13) await _ensureCorrectionColumns(db);
   }
 
   // ==================== PAYMENT CRUD ====================
@@ -491,26 +525,186 @@ class DatabaseService {
       if (transaction.method == PaymentMethod.credit) {
         throw StateError('Veresiye bir tahsilat yöntemi değildir.');
       }
+      if (transaction.reversesTransactionId != null ||
+          transaction.tipCents != 0) {
+        throw StateError('Tahsilat bu alanlarla kaydedilemez.');
+      }
 
-      final collected =
-          Sqflite.firstIntValue(
-            await txn.rawQuery(
-              '''
-              SELECT COALESCE(SUM(amountCents), 0)
-              FROM payment_transactions
-              WHERE appointmentId = ? AND type = 'collection'
-              ''',
-              [transaction.appointmentId],
-            ),
-          ) ??
-          0;
-      final total = paymentRows.first['amountCents'] as int;
-      if (transaction.amountCents > total - collected) {
+      final account = await _getPaymentAccount(txn, transaction.appointmentId);
+      if (transaction.amountCents > account!.outstandingCents) {
         throw StateError('Tahsilat açık veresiye tutarını aşamaz.');
       }
       return txn.insert(
         'payment_transactions',
         transaction.toMap()..remove('id'),
+      );
+    });
+  }
+
+  Future<PaymentAccount?> _getPaymentAccount(
+    DatabaseExecutor db,
+    int appointmentId,
+  ) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT p.*, a.customerName, a.serviceName, a.appointmentDate
+      FROM payments p JOIN appointments a ON a.id=p.appointmentId
+      WHERE p.appointmentId=?''',
+      [appointmentId],
+    );
+    if (rows.isEmpty) return null;
+    final movements = await db.query(
+      'payment_transactions',
+      where: 'appointmentId=?',
+      whereArgs: [appointmentId],
+      orderBy: 'occurredAt, id',
+    );
+    return _accountFromRows(rows.single, movements);
+  }
+
+  PaymentAccount _accountFromRows(
+    Map<String, Object?> row,
+    List<Map<String, Object?>> movements,
+  ) => PaymentAccount(
+    payment: Payment.fromMap(row),
+    customerName: row['customerName'] as String,
+    serviceName: row['serviceName'] as String?,
+    appointmentDate: DateTime.parse(row['appointmentDate'] as String),
+    transactions: movements.map(PaymentTransaction.fromMap),
+  );
+
+  Future<PaymentAccount?> getPaymentAccount(int appointmentId) async {
+    final db = await database;
+    return db.transaction((txn) => _getPaymentAccount(txn, appointmentId));
+  }
+
+  Future<List<PaymentAccount>> getPaymentAccounts({String query = ''}) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final rows = await txn.rawQuery(
+        '''SELECT p.*, a.customerName, a.serviceName, a.appointmentDate
+        FROM payments p JOIN appointments a ON a.id=p.appointmentId
+        ORDER BY a.appointmentDate DESC, p.id DESC''',
+      );
+      final movements = await txn.query(
+        'payment_transactions',
+        orderBy: 'occurredAt, id',
+      );
+      final grouped = <int, List<Map<String, Object?>>>{};
+      for (final m in movements) {
+        (grouped[m['appointmentId'] as int] ??= []).add(m);
+      }
+      final search = _normalizeTurkish(query.trim());
+      return rows
+          .where(
+            (r) =>
+                search.isEmpty ||
+                _normalizeTurkish(
+                  r['customerName'] as String,
+                ).contains(search) ||
+                '${r['appointmentId']}' == search,
+          )
+          .map((r) => _accountFromRows(r, grouped[r['appointmentId']] ?? []))
+          .toList();
+    });
+  }
+
+  /// Refunds cash or writes off unpaid debt without rewriting the original row.
+  Future<int> recordPaymentCorrection(PaymentTransaction correction) async {
+    final key = correction.operationId;
+    final note = correction.note?.trim() ?? '';
+    if (key == null ||
+        key.trim().isEmpty ||
+        key.length > 120 ||
+        note.isEmpty ||
+        note.length > 250) {
+      throw ArgumentError(
+        'İşlem kimliği ve en fazla 250 karakterlik gerekçe zorunludur.',
+      );
+    }
+    if (correction.type == PaymentTransactionType.collection ||
+        correction.method == PaymentMethod.credit) {
+      throw ArgumentError('Geçersiz düzeltme türü veya ödeme yöntemi.');
+    }
+    final db = await database;
+    return db.transaction((txn) async {
+      final prior = await txn.query(
+        'payment_transactions',
+        where: 'operationId=?',
+        whereArgs: [key],
+      );
+      if (prior.isNotEmpty) {
+        final original = PaymentTransaction.fromMap(prior.single);
+        if (original.appointmentId != correction.appointmentId ||
+            original.type != correction.type ||
+            original.amountCents != correction.amountCents ||
+            original.tipCents != correction.tipCents ||
+            original.reversesTransactionId !=
+                correction.reversesTransactionId ||
+            original.method != correction.method ||
+            original.note != note) {
+          throw StateError(
+            'İşlem kimliği başka bir düzeltme için kullanılmış.',
+          );
+        }
+        return original.id!;
+      }
+      final account = await _getPaymentAccount(txn, correction.appointmentId);
+      if (account == null || !account.supportsCorrections) {
+        throw StateError('Düzeltilebilir ödeme kaydı bulunamadı.');
+      }
+      if (correction.reversesTransactionId != null) {
+        final originals = await txn.query(
+          'payment_transactions',
+          where: 'id=? AND appointmentId=?',
+          whereArgs: [
+            correction.reversesTransactionId,
+            correction.appointmentId,
+          ],
+        );
+        if (originals.isEmpty) {
+          throw StateError('Geri alınacak düzeltme bulunamadı.');
+        }
+        final original = PaymentTransaction.fromMap(originals.single);
+        if (original.reversesTransactionId != null ||
+            original.type != correction.type ||
+            original.amountCents != correction.amountCents ||
+            original.tipCents != correction.tipCents ||
+            original.method != correction.method) {
+          throw StateError(
+            'Yalnız özgün düzeltmenin tamamı, aynı yöntem ve tutarla geri alınabilir.',
+          );
+        }
+        final reversals = await txn.query(
+          'payment_transactions',
+          columns: ['id'],
+          where: 'reversesTransactionId=?',
+          whereArgs: [original.id],
+        );
+        if (reversals.isNotEmpty) {
+          throw StateError('Bu düzeltme zaten geri alınmış.');
+        }
+        return txn.insert(
+          'payment_transactions',
+          correction.toMap()..remove('id'),
+        );
+      }
+      if (correction.type == PaymentTransactionType.refund) {
+        if (correction.serviceCents > account.refundableServiceCents ||
+            correction.tipCents > account.refundableTipCents) {
+          throw StateError('İade kalan hizmet veya bahşiş tahsilatını aşamaz.');
+        }
+      } else {
+        if (correction.method != PaymentMethod.other ||
+            correction.amountCents > account.outstandingCents) {
+          throw StateError(
+            'Borçtan düşme kalan veresiyeyi aşamaz; para hareketi oluşturmaz.',
+          );
+        }
+      }
+      return txn.insert(
+        'payment_transactions',
+        correction.toMap()..remove('id'),
       );
     });
   }
@@ -529,36 +723,15 @@ class DatabaseService {
   }
 
   Future<int> getOutstandingBalanceForAppointment(int appointmentId) async {
-    final db = await database;
-    final paymentRows = await db.query(
-      'payments',
-      columns: ['amountCents', 'status'],
-      where: 'appointmentId = ?',
-      whereArgs: [appointmentId],
-      limit: 1,
-    );
-    if (paymentRows.isEmpty ||
-        paymentRows.first['status'] != PaymentStatus.pending.value) {
-      return 0;
-    }
-    final collected =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            '''
-            SELECT COALESCE(SUM(amountCents), 0)
-            FROM payment_transactions
-            WHERE appointmentId = ? AND type = 'collection'
-            ''',
-            [appointmentId],
-          ),
-        ) ??
-        0;
-    final total = paymentRows.first['amountCents'] as int;
-    return total - collected;
+    return (await getPaymentAccount(appointmentId))?.outstandingCents ?? 0;
   }
 
   Future<List<Receivable>> getOpenReceivables() async {
     final db = await database;
+    return _getOpenReceivables(db);
+  }
+
+  Future<List<Receivable>> _getOpenReceivables(DatabaseExecutor db) async {
     final rows = await db.rawQuery('''
       SELECT
         p.appointmentId AS appointmentId,
@@ -569,8 +742,10 @@ class DatabaseService {
         COALESCE(SUM(
           CASE WHEN t.type = 'collection' THEN t.amountCents ELSE 0 END
         ), 0) AS collectedCents,
+        COALESCE(SUM(CASE WHEN t.type = 'refund' THEN (t.amountCents - t.tipCents) * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END), 0) AS refundedCents,
+        COALESCE(SUM(CASE WHEN t.type = 'adjustment' THEN t.amountCents * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END), 0) AS waivedCents,
         p.amountCents - COALESCE(SUM(
-          CASE WHEN t.type = 'collection' THEN t.amountCents ELSE 0 END
+          CASE WHEN t.type = 'collection' THEN t.amountCents WHEN t.type = 'adjustment' THEN t.amountCents * CASE WHEN t.reversesTransactionId IS NULL THEN 1 ELSE -1 END ELSE 0 END
         ), 0) AS outstandingCents
       FROM payments p
       INNER JOIN appointments a ON a.id = p.appointmentId
@@ -609,37 +784,39 @@ class DatabaseService {
 
   Future<CashReport> getCashReport(DateTime startDate, DateTime endDate) async {
     final db = await database;
-    final start = DateTime(
-      startDate.year,
-      startDate.month,
-      startDate.day,
-    ).toIso8601String().split('T').first;
-    final end = DateTime(
-      endDate.year,
-      endDate.month,
-      endDate.day + 1,
-    ).toIso8601String().split('T').first;
-    final paymentRows = await db.query(
-      'payments',
-      where: "status = 'paid' AND paidAt >= ? AND paidAt < ?",
-      whereArgs: [start, end],
-      orderBy: 'paidAt ASC, id ASC',
-    );
-    final transactionRows = await db.query(
-      'payment_transactions',
-      where: 'occurredAt >= ? AND occurredAt < ?',
-      whereArgs: [start, end],
-      orderBy: 'occurredAt ASC, id ASC',
-    );
-    final receivables = await getOpenReceivables();
-    return CashReport.fromEntries(
-      payments: paymentRows.map(Payment.fromMap),
-      transactions: transactionRows.map(PaymentTransaction.fromMap),
-      outstandingCents: receivables.fold(
-        0,
-        (sum, item) => sum + item.outstandingCents,
-      ),
-    );
+    return db.transaction((txn) async {
+      final start = DateTime(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+      ).toIso8601String().split('T').first;
+      final end = DateTime(
+        endDate.year,
+        endDate.month,
+        endDate.day + 1,
+      ).toIso8601String().split('T').first;
+      final paymentRows = await txn.query(
+        'payments',
+        where: "status = 'paid' AND paidAt >= ? AND paidAt < ?",
+        whereArgs: [start, end],
+        orderBy: 'paidAt ASC, id ASC',
+      );
+      final transactionRows = await txn.query(
+        'payment_transactions',
+        where: 'occurredAt >= ? AND occurredAt < ?',
+        whereArgs: [start, end],
+        orderBy: 'occurredAt ASC, id ASC',
+      );
+      final receivables = await _getOpenReceivables(txn);
+      return CashReport.fromEntries(
+        payments: paymentRows.map(Payment.fromMap),
+        transactions: transactionRows.map(PaymentTransaction.fromMap),
+        outstandingCents: receivables.fold(
+          0,
+          (sum, item) => sum + item.outstandingCents,
+        ),
+      );
+    });
   }
 
   Future<List<Payment>> getPaymentsForDate(DateTime date) async {
@@ -1286,28 +1463,33 @@ class DatabaseService {
 
   Future<int> deleteAppointment(int id) async {
     final db = await database;
-
-    // Get appointment first to update customer stats
-    final result = await db.query(
-      'appointments',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
-    final deleted = await db.delete(
-      'appointments',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
-    if (result.isNotEmpty) {
-      final customerId = result.first['customerId'] as int?;
-      if (customerId != null) {
-        await updateCustomerStats(customerId);
+    return db.transaction((txn) async {
+      final payments = await txn.query(
+        'payments',
+        columns: ['status'],
+        where: 'appointmentId=?',
+        whereArgs: [id],
+      );
+      if (payments.any((p) => p['status'] != PaymentStatus.unknown.value)) {
+        throw StateError(
+          'Finansal kaydı olan randevu silinemez. Durum değiştirin veya düzeltme hareketi ekleyin.',
+        );
       }
-    }
-
-    return deleted;
+      final rows = await txn.query(
+        'appointments',
+        columns: ['customerId'],
+        where: 'id=?',
+        whereArgs: [id],
+      );
+      final deleted = await txn.delete(
+        'appointments',
+        where: 'id=?',
+        whereArgs: [id],
+      );
+      final customerId = rows.firstOrNull?['customerId'] as int?;
+      if (customerId != null) await _updateCustomerStats(txn, customerId);
+      return deleted;
+    });
   }
 
   Future<Appointment?> getAppointmentById(int id) async {

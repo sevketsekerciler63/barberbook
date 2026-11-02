@@ -3,7 +3,7 @@
 ```mermaid
 flowchart TD
   UI[Flutter ekranları] --> DB[DatabaseService: atomik işlemler]
-  DB --> SQL[(Cihazda SQLite v12)]
+  DB --> SQL[(Cihazda SQLite v13)]
   UI --> Photo[CustomerPhotoStorage]
   Photo --> Files[Cihazın özel fotoğraf alanı]
   UI --> Alarm[NotificationService: seri native kuyruk]
@@ -18,7 +18,7 @@ flowchart TD
 - **Tek işletme, yerel cihaz:** hesap veya sunucu gerektirmez; cihazlar arasında otomatik senkronizasyon yok. SQLite ve yönetilen fotoğraflar uygulamanın özel alanındadır. Cihaz kaybına karşı ZIP'in cihaz dışına paylaşılması gerekir.
 - **Kimlikler:** müşteri isimleri benzersiz kabul edilmez. Mevcut müşteri açıkça kimliğiyle seçilir; yeni isim girişi ayrı kayıt oluşturur.
 - **Atomik kayıt:** müşteri çözümleme/telefon değişimi, randevu ve istatistikler tek SQLite transaction'ında saklanır. Profil ve yeni fotoğraf geçmişi de birlikte kaydedilir. Kapasite yazım sırasında yeniden kontrol edilir. İşlem içindeki hata kısmi kayıt bırakmaz.
-- **Para:** tüm tutarlar tamsayı kuruş. İlk ödeme kaydı veresiye veya tahsil edilmiş olarak saklanır; bilinen finansal kayıt sonradan form üzerinden değiştirilemez. Veresiye tahsilatları ayrı, eklemeli hareketlerdir. Randevu durumu para iadesi oluşturmaz. Tam iade/düzeltme akışı henüz yoktur.
+- **Para:** tüm tutarlar tamsayı kuruş. İlk ödeme kaydı veresiye veya tahsil edilmiş olarak saklanır; bilinen finansal kayıt sonradan form üzerinden değiştirilemez. Veresiye tahsilatları ayrı, eklemeli hareketlerdir. Randevu durumu para iadesi oluşturmaz. İade (hizmet/bahşiş ayrı), nakitsiz veresiye düşümü ve bir kez geri alma eklemeli hareketlerle kaydedilir. Sınırlar ve benzersiz işlem kimliği SQLite transaction/UNIQUE indeksleriyle korunur. Rapor/Home/CSV net tutarları aynı hesaptan alır; rapor tek okuma transaction'ıdır. [Kurallar](payment-corrections.md).
 - **Rapor tarihi:** tahsilat randevu gününe değil ödeme/gerçek tahsilat hareketi gününe yazılır. Yerel takvim günü sınırları, milisaniyeli/milisaniyesiz eski ISO tarihlerini birlikte kapsar. Çoklu saat diliminde çalışma bu ürünün kapsamı değildir.
 - **Kesinti kurtarma:** veritabanı açılmadan önce kalıcı geri yükleme kaydı denetlenir. Tamamlanmamış değişim eski DB/fotoğraf grubuna döner; yeni DB'nin WAL/journal dosyaları eski gruba karışmaz. Onaylanmış değişim yeni veriyi tutar. Bozuk kurtarma kaydında dosyalar korunur, sessiz boş DB oluşturulmaz. Normal bağlantılar bakım işleminin bitmesini bekler.
 - **Yedek:** kapalı SQLite dosyasından ayrı snapshot alınır. Fotoğraflar, referanslar ve manifest doğrulanır; yeni dosya geri yükleme doğrulamasını geçmeden başarılı sayılmaz. Eksik fotoğrafı dışlama yalnız açık onayla, snapshot üzerinde yapılır. Geri yüklemede önce güvenlik yedeği alınır. Alarm eşlemesi veri geri geldikten sonra yapılır; native alarm hatası restore edilmiş veriyi geri almaz.

@@ -54,7 +54,7 @@ void main() {
 
   test('valid v12 application backup passes validation', () async {
     final db = await DatabaseService.instance.database;
-    expect(await db.getVersion(), 12);
+    expect(await db.getVersion(), 13);
     final backup = await BackupService.instance.createBackup();
     await expectLater(BackupService.instance.validateBackup(backup), completes);
   });
@@ -184,7 +184,7 @@ void main() {
 
     final preview = await BackupService.instance.previewBackup(backup);
 
-    expect(preview.schemaVersion, 12);
+    expect(preview.schemaVersion, 13);
     expect(preview.customerCount, 1);
     expect(preview.appointmentCount, 1);
     expect(preview.serviceCount, 3);

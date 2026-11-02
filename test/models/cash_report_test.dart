@@ -69,6 +69,9 @@ void main() {
 
     expect(report.collectedCents, 0);
     expect(report.collectionCount, 0);
-    expect(report.byMethod, isEmpty);
+    expect(report.byMethod, {PaymentMethod.cash: -10000});
+    expect(report.refundedCents, 10000);
+    expect(report.waivedDebtCents, 5000);
+    expect(report.netCashCents, -10000);
   });
 }

@@ -15,7 +15,7 @@ void main() {
   tearDown(isolation.tearDown);
 
   test(
-    'v7 database upgrades to v12 with payment records enabled by default',
+    'v7 database upgrades to v13 with payment records enabled by default',
     () async {
       final legacyDatabase = await openDatabase(
         isolation.databasePath,
@@ -129,7 +129,7 @@ void main() {
 
       final upgradedDatabase = await DatabaseService.instance.database;
 
-      expect(await upgradedDatabase.getVersion(), 12);
+      expect(await upgradedDatabase.getVersion(), 13);
       expect(
         await _tableNames(upgradedDatabase),
         containsAll(<String>[
@@ -180,6 +180,11 @@ void main() {
         isolation.databasePath,
         version: 11,
         onCreate: (db, version) async {
+          await db.execute('''CREATE TABLE payment_transactions (
+            id INTEGER PRIMARY KEY, appointmentId INTEGER NOT NULL,
+            type TEXT NOT NULL, amountCents INTEGER NOT NULL,
+            method TEXT NOT NULL, occurredAt TEXT NOT NULL,
+            note TEXT, createdAt TEXT NOT NULL)''');
           await db.execute('''
           CREATE TABLE shop_settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -198,7 +203,7 @@ void main() {
       final upgradedDatabase = await DatabaseService.instance.database;
       final settings = (await upgradedDatabase.query('shop_settings')).single;
 
-      expect(await upgradedDatabase.getVersion(), 12);
+      expect(await upgradedDatabase.getVersion(), 13);
       expect(settings['appointmentCapacity'], 3);
       expect(settings['paymentEnabled'], 1);
     },

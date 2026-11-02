@@ -398,7 +398,7 @@ class BackupService {
             await candidate.rawQuery('PRAGMA user_version'),
           ) ??
           0;
-      if (version < 1 || version > 12) {
+      if (version < 1 || version > DatabaseService.schemaVersion) {
         throw StateError('Yedek şema sürümü desteklenmiyor: $version');
       }
 
@@ -418,6 +418,19 @@ class BackupService {
       if (version >= 11) requiredTables.add('shop_settings');
       if (!tables.containsAll(requiredTables)) {
         throw StateError('Yedek gerekli uygulama tablolarını içermiyor.');
+      }
+      if (version >= 13) {
+        final columns = await candidate.rawQuery(
+          'PRAGMA table_info(payment_transactions)',
+        );
+        final names = columns.map((row) => row['name']).toSet();
+        if (!names.containsAll({
+          'tipCents',
+          'operationId',
+          'reversesTransactionId',
+        })) {
+          throw StateError('Yedek düzeltme hareketi alanlarını içermiyor.');
+        }
       }
 
       final foreignKeyErrors = await candidate.rawQuery(

@@ -35,6 +35,7 @@ Ekran görüntülerindeki müşteriler, telefon numaraları ve tutarlar tamamen 
 - Gerçek alınan tutar, indirim, bahşiş ve ödeme notu
 - Günlük/haftalık/aylık/özel aralık tahsilat raporu ve CSV dışa aktarımı
 - Açık veresiye listesi, kısmi/tam tahsilat ve fazla tahsilat koruması
+- Ödeme geçmişi, hizmet/bahşiş iadesi, nakitsiz borçtan düşme ve gerekçeli geri alma
 - Yerel alarm/hatırlatma
 - WhatsApp'ta hazır mesaj bağlantısı açma
 - Saç modeli galerisi
@@ -59,7 +60,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-11-03: 160 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-11-03: 182 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 **Telefonunda dene:** [başarılı CI çalışmasından](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml) `barberbook-demo-debug` ZIP'ini indir. İki debug APK ve `SHA256SUMS.txt` birlikte sunulur; demo asıl uygulamadan ayrı kurulur. [İndirme ve dosya doğrulama](docs/ci.md) · [Gerçek telefon kabul planı ve sonuç formu](docs/device-acceptance.md).
 
@@ -74,7 +75,7 @@ flutter build apk --debug --target-platform android-x64 --split-per-abi
 
 Tahsil edilmiş ödeme, randevu sonradan iptal edilse veya yeniden planlansa da gerçek tahsilat gününün kasasında kalır; durum değiştirmek para iadesi oluşturmaz. Müşteri telefonu ana ekran ve aramada her yenilemede güncel kayıttan okunur.
 
-Alınmış ödeme ve veresiye ana kaydı yeniden yazılmaz. Ödenmiş randevu tekrar planlanıp tamamlandığında ilk tahsilat korunur; yeni ödeme penceresi açılmaz. İade/düzeltme defteri bu sürümün kapsamına dahil değildir.
+Alınmış ödeme ve veresiye ana kaydı yeniden yazılmaz. Ödenmiş randevu tekrar planlanıp tamamlandığında ilk tahsilat korunur; yeni ödeme penceresi açılmaz. İade ve borçtan düşme, Yönetim → Ödeme geçmişi / iade üzerinden gerekçeli yeni hareketlerle kaydedilir. Hatalı düzeltme, özgün satır silinmeden geri alma hareketiyle düzeltilir. [İşlem kuralları ve testler](docs/payment-corrections.md).
 
 Yedek oluşturulunca, dosya geri yükleme kurallarıyla doğrulanır. Veritabanı ve fotoğraf değişimi eski dosyalar korunarak kalıcı bir kurtarma kaydıyla yapılır; tamamlanmamış değişim bir sonraki veritabanı açılışından önce geri alınır. Yedekleme/geri yükleme sırasında normal yeni veri bağlantıları bekletilir. Eksik fotoğraflarda işlem durur; isterseniz açık onayla yalnız dışa aktarılan kopyadaki eksik bağlantılar çıkarılır. Aynı seçim geri yükleme öncesi güvenlik yedeği için de sunulur. Cihazdaki asıl kayıtlar sırf yedek almak için değiştirilmez. Arşiv sınırı 10.000 girdi (DB/manifest dahil) ve 200 MB açılmış içeriktir; sınır aşımı başarı diye bildirilmez.
 

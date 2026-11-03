@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/backup_preview.dart';
+import '../services/backup_recency.dart';
+import '../widgets/backup_reminder.dart';
 import '../services/backup_file_gateway.dart';
 import '../services/backup_service.dart';
 import '../services/notification_service.dart';
@@ -326,19 +328,35 @@ class _BackupScreenState extends State<BackupScreen> {
                   ],
                 ),
               )
-            : _backups.isEmpty
-            ? const Center(child: Text('Henüz yedek oluşturulmadı.'))
             : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                itemCount: _backups.length,
+                itemCount: _backups.length + 1,
                 itemBuilder: (context, index) {
-                  final entry = _backups[index];
+                  if (index == 0) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        BackupSummary(
+                          status: BackupRecency.fromEntries(
+                            _backups,
+                            now: DateTime.now(),
+                          ),
+                        ),
+                        if (_backups.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text('Henüz yedek oluşturulmadı.'),
+                          ),
+                      ],
+                    );
+                  }
+                  final entry = _backups[index - 1];
                   final file = entry.file;
                   return Card(
                     color: AppColors.surface,
                     child: ListTile(
                       leading: const Icon(Icons.storage, color: AppColors.gold),
-                      title: Text('Yedek ${_backups.length - index}'),
+                      title: Text('Yedek ${_backups.length - index + 1}'),
                       subtitle: Text(_label(entry)),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,

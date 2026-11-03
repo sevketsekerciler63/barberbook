@@ -19,6 +19,7 @@ import '../services/whatsapp_service.dart';
 import '../utils/constants.dart';
 import '../widgets/appointment_card.dart';
 import '../widgets/home_header.dart';
+import '../widgets/backup_reminder.dart';
 import 'add_appointment_screen.dart';
 import 'customers_screen.dart';
 import 'whatsapp_settings_screen.dart';
@@ -53,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _paymentEnabled = true;
   bool _isLoading = true;
   bool _showCalendar = false;
+  int _backupRevision = 0;
 
   final TextEditingController _searchController = TextEditingController();
   List<Appointment> _searchResults = [];
@@ -73,6 +75,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkRequiredPermissions();
     _startWhatsAppReminderChecker();
   }
+
+  Future<void> _openBackups() async {
+    final restored = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const BackupScreen()));
+    if (!mounted) return;
+    setState(() => _backupRevision++);
+    if (restored == true) await _loadAppointments();
+  }
+
+  Widget _backupReminder() =>
+      BackupReminder(revision: _backupRevision, onOpen: _openBackups);
 
   Future<void> _checkRequiredPermissions() async {
     if (Platform.isIOS) {
@@ -768,21 +782,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 tooltip: 'Yönetim',
                 color: AppColors.surface,
                 onSelected: (value) async {
+                  if (value == 'backup') {
+                    await _openBackups();
+                    return;
+                  }
                   final Widget screen = switch (value) {
                     'services' => const ServiceManagementScreen(),
                     'hours' => const WorkingHoursScreen(),
                     'cash_report' => const CashReportScreen(),
                     'receivables' => const ReceivablesScreen(),
                     'payment_history' => const PaymentHistoryScreen(),
-                    'backup' => const BackupScreen(),
                     _ => const WhatsAppSettingsScreen(),
                   };
-                  final changed = await Navigator.of(
+                  await Navigator.of(
                     context,
                   ).push(MaterialPageRoute(builder: (_) => screen));
                   if (mounted &&
-                      ((value == 'backup' && changed == true) ||
-                          value == 'receivables' ||
+                      (value == 'receivables' ||
                           value == 'cash_report' ||
                           value == 'payment_history')) {
                     await _loadAppointments();
@@ -1093,62 +1109,75 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     )
                   : (_isSearching ? _searchResults : _appointments).isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _isSearching
-                                ? Icons.search_off
-                                : Icons.event_available,
-                            size: 64,
-                            color: AppColors.textSecondary.withValues(
-                              alpha: 0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _isSearching
-                                ? (_searchError ?? 'Arama sonucu bulunamadı')
-                                : (_loadError ??
-                                      (_isToday
-                                          ? 'Bugün randevu yok'
-                                          : 'Bu gün için randevu yok')),
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 16,
-                            ),
-                          ),
-                          if (!_isSearching) ...[
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              onPressed: _loadError == null
-                                  ? _addAppointment
-                                  : _loadAppointments,
-                              icon: const Icon(
-                                Icons.add,
-                                color: AppColors.gold,
+                  ? ListView(
+                      padding: const EdgeInsets.only(bottom: 100),
+                      children: [
+                        if (!_isSearching) _backupReminder(),
+                        Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _isSearching
+                                    ? Icons.search_off
+                                    : Icons.event_available,
+                                size: 64,
+                                color: AppColors.textSecondary.withValues(
+                                  alpha: 0.3,
+                                ),
                               ),
-                              label: Text(
-                                _loadError == null
-                                    ? 'Randevu Ekle'
-                                    : 'Tekrar dene',
-                                style: const TextStyle(color: AppColors.gold),
+                              const SizedBox(height: 16),
+                              Text(
+                                _isSearching
+                                    ? (_searchError ??
+                                          'Arama sonucu bulunamadı')
+                                    : (_loadError ??
+                                          (_isToday
+                                              ? 'Bugün randevu yok'
+                                              : 'Bu gün için randevu yok')),
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 16,
+                                ),
                               ),
-                            ),
-                          ],
-                        ],
-                      ),
+                              if (!_isSearching) ...[
+                                const SizedBox(height: 8),
+                                TextButton.icon(
+                                  onPressed: _loadError == null
+                                      ? _addAppointment
+                                      : _loadAppointments,
+                                  icon: const Icon(
+                                    Icons.add,
+                                    color: AppColors.gold,
+                                  ),
+                                  label: Text(
+                                    _loadError == null
+                                        ? 'Randevu Ekle'
+                                        : 'Tekrar dene',
+                                    style: const TextStyle(
+                                      color: AppColors.gold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.only(bottom: 100),
                       itemCount: _isSearching
                           ? _searchResults.length
-                          : _appointments.length,
+                          : _appointments.length + 1,
                       itemBuilder: (context, index) {
+                        if (!_isSearching && index == 0) {
+                          return _backupReminder();
+                        }
                         final appointment = _isSearching
                             ? _searchResults[index]
-                            : _appointments[index];
+                            : _appointments[index - 1];
                         return Slidable(
                           key: ValueKey(appointment.id),
                           endActionPane: ActionPane(

@@ -31,6 +31,7 @@ Ekran görüntülerindeki müşteriler, telefon numaraları ve tutarlar tamamen 
 - Yerel SQLite veritabanı ve geriye uyumlu migration
 - Müşteri kartı silinse bile randevu geçmişinin korunması
 - Uygulama içinden SQLite verisi ve yönetilen müşteri fotoğraflarını içeren ZIP yedek oluşturma ve geri yükleme
+- Son yerel yedek dosyası tarihi ve 7 günlük uygulama içi yedek hatırlatması
 - Tamamlanan randevuda nakit, kart, FAST/havale veya veresiye tahsilat kaydı
 - Gerçek alınan tutar, indirim, bahşiş ve ödeme notu
 - Günlük/haftalık/aylık/özel aralık tahsilat raporu ve CSV dışa aktarımı
@@ -60,7 +61,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-11-03: 192 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-11-03: 204 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 **Telefonunda dene:** [başarılı CI çalışmasından](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml) `barberbook-demo-debug` ZIP'ini indir. İki debug APK ve `SHA256SUMS.txt` birlikte sunulur; demo asıl uygulamadan ayrı kurulur. [İndirme ve dosya doğrulama](docs/ci.md) · [Gerçek telefon kabul planı ve sonuç formu](docs/device-acceptance.md).
 
@@ -118,3 +119,5 @@ Bu uygulamayı yapay zekâ asistanlarıyla birlikte yazdım. Neyin yapılacağı
 ## Lisans
 
 Tüm hakları saklıdır. Kaynak kod yalnızca inceleme amacıyla herkese açıktır; kullanım lisansı verilmemiştir.
+
+Yerel yedek yoksa veya son dosya 7 takvim günü eskiyse ana ekranda yedekleme bağlantısı görünür. Yedekleme ekranı son dosyanın tarihini gösterir; okunamayan veya ileri tarihli dosyalar ayrı uyarılır. Bu hatırlatma otomatik yedek/harici paylaşım yapmaz. [Davranış ve sınırlar](docs/backup-reminders.md).

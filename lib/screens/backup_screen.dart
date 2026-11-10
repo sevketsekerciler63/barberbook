@@ -56,13 +56,13 @@ class _BackupScreenState extends State<BackupScreen> {
     if (_busy || !mounted) return;
     setState(() => _busy = true);
     try {
-      final file = await BackupService.instance.createBackup(
+      await BackupService.instance.createBackup(
         omitMissingPhotos: omitMissingPhotos,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Yedek oluşturuldu: ${file.path}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Yedek oluşturuldu.')));
       }
       await _load();
     } on MissingBackupPhotosException catch (error) {
@@ -354,28 +354,41 @@ class _BackupScreenState extends State<BackupScreen> {
                   final file = entry.file;
                   return Card(
                     color: AppColors.surface,
-                    child: ListTile(
-                      leading: const Icon(Icons.storage, color: AppColors.gold),
-                      title: Text('Yedek ${_backups.length - index + 1}'),
-                      subtitle: Text(_label(entry)),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            tooltip: 'Paylaş',
-                            onPressed: entry.isAvailable
-                                ? () => _shareBackup(file)
-                                : null,
-                            icon: const Icon(Icons.share_outlined),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ListTile(
+                          leading: const Icon(
+                            Icons.storage,
+                            color: AppColors.gold,
                           ),
-                          TextButton(
-                            onPressed: entry.isAvailable
-                                ? () => _restore(file)
-                                : null,
-                            child: const Text('Geri yükle'),
+                          title: Text('Yedek ${_backups.length - index + 1}'),
+                          subtitle: Text(_label(entry)),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 0, 12, 8),
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 4,
+                            children: [
+                              IconButton(
+                                tooltip: 'Paylaş',
+                                onPressed: entry.isAvailable
+                                    ? () => _shareBackup(file)
+                                    : null,
+                                icon: const Icon(Icons.share_outlined),
+                              ),
+                              TextButton(
+                                onPressed: entry.isAvailable
+                                    ? () => _restore(file)
+                                    : null,
+                                child: const Text('Geri yükle'),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   );
                 },

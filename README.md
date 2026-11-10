@@ -61,7 +61,7 @@ flutter analyze
 flutter build apk --debug --target-platform android-x64 --split-per-abi
 ```
 
-2026-11-03: 204 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+2026-11-10: 243 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
 
 **Telefonunda dene:** [başarılı CI çalışmasından](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml) `barberbook-demo-debug` ZIP'ini indir. İki debug APK ve `SHA256SUMS.txt` birlikte sunulur; demo asıl uygulamadan ayrı kurulur. [İndirme ve dosya doğrulama](docs/ci.md) · [Gerçek telefon kabul planı ve sonuç formu](docs/device-acceptance.md).
 
@@ -121,3 +121,7 @@ Bu uygulamayı yapay zekâ asistanlarıyla birlikte yazdım. Neyin yapılacağı
 Tüm hakları saklıdır. Kaynak kod yalnızca inceleme amacıyla herkese açıktır; kullanım lisansı verilmemiştir.
 
 Yerel yedek yoksa veya son dosya 7 takvim günü eskiyse ana ekranda yedekleme bağlantısı görünür. Yedekleme ekranı son dosyanın tarihini gösterir; okunamayan veya ileri tarihli dosyalar ayrı uyarılır. Bu hatırlatma otomatik yedek/harici paylaşım yapmaz. [Davranış ve sınırlar](docs/backup-reminders.md).
+
+Randevu/hizmet kaydında çift işlem ve çıkış koruması, değişiklikleri bırakma onayı, başlangıç/veri yükleme hatalarında yeniden deneme eklendi. [Kayıt ve açılış güvenliği](docs/recoverable-forms-and-startup.md).
+
+Ana ekran, takvim, yedek satırları ve randevu kayıt düğmesi dar ekran ile büyük yazıda düzenlendi. Randevu kartındaki işlem menüsü düzenleme ve durum değişikliğini açar. [Android emülatör kontrolü](docs/emulator-usability-2026-11-10.md).

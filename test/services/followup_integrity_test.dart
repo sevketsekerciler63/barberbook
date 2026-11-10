@@ -228,6 +228,24 @@ void main() {
     },
   );
 
+  test('an old edit cannot overwrite a completed appointment status', () async {
+    final id = await insert();
+    final stale = (await service.getAppointmentById(id))!;
+    await service.completeAppointmentWithoutPayment(id);
+    await expectLater(
+      service.saveAppointmentForCustomer(
+        appointment: stale.copyWith(appointmentTime: '11:00'),
+        phone: '',
+        expectedStatus: stale.status,
+      ),
+      throwsStateError,
+    );
+    final current = (await service.getAppointmentById(id))!;
+    expect(current.status, AppointmentStatus.completed);
+    expect(current.appointmentTime, '10:00');
+    expect(await service.getAllCustomers(), isEmpty);
+  });
+
   test('write-time capacity recheck cannot leave an extra customer', () async {
     await insert();
     await expectLater(

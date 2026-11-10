@@ -21,7 +21,7 @@ void main() {
     () async {
       final id = await DatabaseService.instance.insertService(
         BarberService(
-          name: 'Saç + Sakal',
+          name: 'Özel Saç + Sakal',
           durationMinutes: 45,
           priceCents: 65000,
         ),

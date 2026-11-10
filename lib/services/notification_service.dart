@@ -11,6 +11,7 @@ import '../main.dart';
 import 'alarm_reconciliation.dart';
 import 'alarm_scheduling.dart';
 import 'serial_task_queue.dart';
+import 'alarm_delivery_gate.dart';
 
 class NotificationService {
   static final NotificationService instance = NotificationService._init();
@@ -19,7 +20,8 @@ class NotificationService {
   VoidCallback? onAlarmFinished;
 
   StreamSubscription<AlarmSet>? _ringSubscription;
-  final Set<int> _handledRingingIds = <int>{};
+  late final _delivery = AlarmDeliveryGate(deliver: _handleAlarmRing);
+  final Set<Object> _readyOwners = {};
   final _nativeQueue = SerialTaskQueue();
 
   bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
@@ -27,54 +29,60 @@ class NotificationService {
   Future<void> initialize() async {
     if (!_isMobile) return;
 
-    // Alarm.init() is already called in main.dart
+    // Alarm.init() is already called by the startup gateway.
 
     // Listen to the alarm ring stream
-    _ringSubscription?.cancel();
-    _ringSubscription = Alarm.ringing.listen((ringing) async {
+    await _ringSubscription?.cancel();
+    _ringSubscription = Alarm.ringing.listen((ringing) {
       final currentIds = ringing.alarms.map((alarm) => alarm.id).toSet();
-      _handledRingingIds.removeWhere((id) => !currentIds.contains(id));
-      for (final alarmSettings in ringing.alarms) {
-        if (_handledRingingIds.add(alarmSettings.id)) {
-          await _handleAlarmRing(alarmSettings.id);
-        }
-      }
+      unawaited(_delivery.updateRinging(currentIds));
     });
   }
 
-  Future<void> _handleAlarmRing(int id) async {
+  /// Only Home can grant readiness; startup and license screens cannot display
+  /// appointment details. Owners prevent an old Home disposal clearing a new one.
+  void attachHome(Object owner) {
+    _readyOwners.add(owner);
+    unawaited(_delivery.setReady(true));
+  }
+
+  void detachHome(Object owner) {
+    _readyOwners.remove(owner);
+    if (_readyOwners.isEmpty) unawaited(_delivery.setReady(false));
+  }
+
+  Future<bool> _handleAlarmRing(int id, bool Function() isCurrent) async {
     debugPrint('ALARM RINGING: $id');
+    if (!isCurrent()) return false;
     final revision = DatabaseService.instance.dataRevision;
     final appointment = await DatabaseService.instance.getAppointmentById(id);
-    if (revision != DatabaseService.instance.dataRevision) return;
+    if (!isCurrent() || revision != DatabaseService.instance.dataRevision) {
+      return false;
+    }
     if (appointment == null || !appointment.shouldHaveAlarm) {
       await cancelAlarm(id);
-      return;
+      return false;
     }
-    {
-      final paymentEnabled = await DatabaseService.instance.isPaymentEnabled();
-      int retries = 0;
-      while (globalNavigatorKey.currentContext == null && retries < 20) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        retries++;
-      }
-
-      if (globalNavigatorKey.currentContext != null) {
-        Navigator.of(globalNavigatorKey.currentContext!).push(
-          MaterialPageRoute(
-            builder: (_) => AlarmScreen(
-              appointment: appointment,
-              paymentEnabled: paymentEnabled,
-            ),
-            fullscreenDialog: true,
+    final paymentEnabled = await DatabaseService.instance.isPaymentEnabled();
+    final navigator = globalNavigatorKey.currentState;
+    if (!isCurrent() ||
+        revision != DatabaseService.instance.dataRevision ||
+        navigator == null ||
+        !navigator.mounted) {
+      return false;
+    }
+    unawaited(
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => AlarmScreen(
+            appointment: appointment,
+            paymentEnabled: paymentEnabled,
           ),
-        );
-      } else {
-        debugPrint(
-          'Failed to push AlarmScreen: context is still null after 2 seconds.',
-        );
-      }
-    }
+          fullscreenDialog: true,
+        ),
+      ),
+    );
+    return true;
   }
 
   /// Schedule an alarm for an appointment
@@ -136,8 +144,8 @@ class NotificationService {
         appointments: appointments,
         now: DateTime.now(),
         cancelAll: () async {
+          _delivery.clear();
           await Alarm.stopAll();
-          _handledRingingIds.clear();
         },
         schedule: (appointment) =>
             _scheduleMobileAlarm(appointment, appointment.fullDateTime),
@@ -147,6 +155,7 @@ class NotificationService {
 
   /// Cancel a scheduled alarm
   Future<void> cancelAlarm(int appointmentId) async {
+    _delivery.cancel(appointmentId);
     if (_isMobile) {
       await _nativeQueue.run(() async {
         try {
@@ -162,6 +171,7 @@ class NotificationService {
 
   /// Cancel all scheduled alarms
   Future<void> cancelAllAlarms() async {
+    _delivery.clear();
     if (_isMobile) {
       await _nativeQueue.run(() async {
         try {
@@ -176,6 +186,9 @@ class NotificationService {
   }
 
   void dispose() {
+    _readyOwners.clear();
+    unawaited(_delivery.setReady(false));
+    _delivery.clear();
     _ringSubscription?.cancel();
   }
 }

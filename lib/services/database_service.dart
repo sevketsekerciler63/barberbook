@@ -870,9 +870,63 @@ class DatabaseService {
 
   // ==================== SERVICE CRUD ====================
 
+  Future<void> _validateServiceWrite(
+    DatabaseExecutor db,
+    BarberService service, {
+    bool updating = false,
+  }) async {
+    final name = service.name.trim();
+    if (name.isEmpty ||
+        name.length > 60 ||
+        service.durationMinutes < 1 ||
+        service.durationMinutes > 480 ||
+        (service.priceCents != null &&
+            (service.priceCents! < 0 || service.priceCents! > 999999999999))) {
+      throw ArgumentError('Hizmet adı, süre veya fiyat geçersiz.');
+    }
+    Map<String, Object?>? previous;
+    if (updating) {
+      if (service.id == null) {
+        throw ArgumentError('Düzenlenecek hizmetin kimliği gerekli.');
+      }
+      final rows = await db.query(
+        'services',
+        where: 'id = ?',
+        whereArgs: [service.id],
+        limit: 1,
+      );
+      if (rows.isEmpty) {
+        throw StateError('Hizmet bulunamadı. Listeyi yenileyin.');
+      }
+      previous = rows.single;
+    } else if (service.id != null) {
+      throw ArgumentError('Yeni hizmetin kimliği boş olmalıdır.');
+    }
+    if (!service.isActive) return;
+    // Preserve edits to legacy active duplicates unless their name is changed.
+    final unchangedActiveName =
+        previous != null &&
+        previous['isActive'] == 1 &&
+        _normalizeTurkish((previous['name'] as String).trim()) ==
+            _normalizeTurkish(name);
+    if (unchangedActiveName) return;
+    final active = await db.query('services', where: 'isActive = 1');
+    if (active.any(
+      (row) =>
+          row['id'] != service.id &&
+          _normalizeTurkish((row['name'] as String).trim()) ==
+              _normalizeTurkish(name),
+    )) {
+      throw StateError('Aynı adlı aktif hizmet zaten var.');
+    }
+  }
+
   Future<int> insertService(BarberService service) async {
     final db = await database;
-    return db.insert('services', service.toMap());
+    return db.transaction((txn) async {
+      await _validateServiceWrite(txn, service);
+      return txn.insert('services', service.toMap());
+    });
   }
 
   Future<List<BarberService>> getServices({bool activeOnly = true}) async {
@@ -886,16 +940,16 @@ class DatabaseService {
   }
 
   Future<int> updateService(BarberService service) async {
-    if (service.id == null) {
-      throw ArgumentError('Düzenlenecek hizmetin kimliği gerekli.');
-    }
     final db = await database;
-    return db.update(
-      'services',
-      service.toMap(),
-      where: 'id = ?',
-      whereArgs: [service.id],
-    );
+    return db.transaction((txn) async {
+      await _validateServiceWrite(txn, service, updating: true);
+      return txn.update(
+        'services',
+        service.toMap(),
+        where: 'id = ?',
+        whereArgs: [service.id],
+      );
+    });
   }
 
   // ==================== HAIRSTYLE TEMPLATE CRUD ====================
@@ -1119,9 +1173,24 @@ class DatabaseService {
     required Appointment appointment,
     int? selectedCustomerId,
     required String phone,
+    AppointmentStatus? expectedStatus,
   }) async {
     final db = await database;
     return db.transaction((txn) async {
+      if (expectedStatus != null && appointment.id != null) {
+        final existing = await txn.query(
+          'appointments',
+          where: 'id = ?',
+          whereArgs: [appointment.id],
+          limit: 1,
+        );
+        if (existing.isEmpty) throw StateError('Randevu bulunamadı.');
+        if (Appointment.fromMap(existing.single).status != expectedStatus) {
+          throw StateError(
+            'Randevu durumu değişti. Formu kapatıp randevuyu yeniden açın.',
+          );
+        }
+      }
       // Recheck capacity inside the write transaction, after the UI's preview.
       if (appointment.isActive) {
         final date = appointment.appointmentDate

@@ -27,7 +27,9 @@ class _WorkingHoursScreenState extends State<WorkingHoursScreen> {
   List<ClosedTimeBlock> _blocks = [];
   int _appointmentCapacity = 1;
   bool _paymentEnabled = true;
-  bool _loading = false;
+  bool _loading = true;
+  bool _loadFailed = false;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -36,6 +38,11 @@ class _WorkingHoursScreenState extends State<WorkingHoursScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
     try {
       final intervals = await _db.getWorkingIntervals();
       final blocks = await _db.getClosedTimeBlocks();
@@ -55,7 +62,12 @@ class _WorkingHoursScreenState extends State<WorkingHoursScreen> {
       });
     } catch (error) {
       debugPrint('Working hours could not load: $error');
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
+      }
     }
   }
 
@@ -209,13 +221,27 @@ class _WorkingHoursScreenState extends State<WorkingHoursScreen> {
   }
 
   Future<void> _save() async {
-    await _db.replaceWorkingIntervals(
-      _days.values.whereType<WorkingInterval>().toList(),
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Çalışma saatleri kaydedildi.')),
-    );
+    if (_loading || _loadFailed || _saving) return;
+    setState(() => _saving = true);
+    try {
+      await _db.replaceWorkingIntervals(
+        _days.values.whereType<WorkingInterval>().toList(),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Çalışma saatleri kaydedildi.')),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Çalışma saatleri kaydedilemedi. Yeniden deneyin.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _addBlock() async {
@@ -337,100 +363,126 @@ class _WorkingHoursScreenState extends State<WorkingHoursScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Çalışma saatleri'),
-        actions: [IconButton(onPressed: _save, icon: const Icon(Icons.save))],
+        actions: [
+          IconButton(
+            tooltip: 'Çalışma saatlerini kaydet',
+            onPressed: _loading || _loadFailed || _saving ? null : _save,
+            icon: const Icon(Icons.save),
+          ),
+        ],
       ),
       body: _loading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.gold),
             )
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  color: AppColors.surface,
-                  child: ListTile(
-                    onTap: _setCapacity,
-                    leading: const Icon(Icons.people_outline),
-                    title: const Text('Aynı anda müşteri sayısı'),
-                    subtitle: Text('$_appointmentCapacity müşteri'),
-                    trailing: const Icon(Icons.chevron_right),
-                  ),
-                ),
-                Card(
-                  color: AppColors.surface,
-                  child: SwitchListTile(
-                    secondary: const Icon(Icons.payments_outlined),
-                    title: const Text('Ödeme kayıtları'),
-                    subtitle: Text(
-                      _paymentEnabled
-                          ? 'Tamamlanan randevularda ödeme almayı gösterir.'
-                          : 'Ödeme istemleri ve günlük tahsilat gizlenir.',
-                    ),
-                    value: _paymentEnabled,
-                    onChanged: _setPaymentEnabled,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Haftalık program',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                for (var day = 1; day <= 7; day++)
-                  Card(
-                    color: AppColors.surface,
-                    child: ListTile(
-                      onTap: () => _editDay(day),
-                      title: Text(_dayNames[day - 1]),
-                      subtitle: Text(
-                        _days[day] == null
-                            ? 'Kapalı'
-                            : '${_time(_days[day]!.startMinute)}–${_time(_days[day]!.endMinute)}',
-                      ),
-                      trailing: const Icon(Icons.edit),
-                    ),
-                  ),
-                const SizedBox(height: 24),
-                Row(
+          : _loadFailed
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Expanded(
-                      child: Text(
-                        'Özel kapalı zamanlar',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: _addBlock,
-                      icon: const Icon(Icons.add),
+                    const Text('Çalışma saatleri yüklenemedi.'),
+                    FilledButton(
+                      onPressed: _load,
+                      child: const Text('Yeniden dene'),
                     ),
                   ],
                 ),
-                if (_blocks.isEmpty)
-                  const Text(
-                    'Tanımlı kapalı zaman yok.',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
-                for (final block in _blocks)
+              ),
+            )
+          : AbsorbPointer(
+              absorbing: _saving,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (_saving) const LinearProgressIndicator(),
                   Card(
                     color: AppColors.surface,
                     child: ListTile(
-                      title: Text(block.reason ?? 'Kapalı'),
+                      onTap: _setCapacity,
+                      leading: const Icon(Icons.people_outline),
+                      title: const Text('Aynı anda müşteri sayısı'),
+                      subtitle: Text('$_appointmentCapacity müşteri'),
+                      trailing: const Icon(Icons.chevron_right),
+                    ),
+                  ),
+                  Card(
+                    color: AppColors.surface,
+                    child: SwitchListTile(
+                      secondary: const Icon(Icons.payments_outlined),
+                      title: const Text('Ödeme kayıtları'),
                       subtitle: Text(
-                        '${DateFormat('dd.MM.yyyy HH:mm').format(block.startAt)} – ${DateFormat('dd.MM.yyyy HH:mm').format(block.endAt)}',
+                        _paymentEnabled
+                            ? 'Tamamlanan randevularda ödeme almayı gösterir.'
+                            : 'Ödeme istemleri ve günlük tahsilat gizlenir.',
                       ),
-                      trailing: IconButton(
-                        onPressed: () => _deleteBlock(block),
-                        icon: const Icon(
-                          Icons.delete_outline,
-                          color: AppColors.red,
+                      value: _paymentEnabled,
+                      onChanged: _setPaymentEnabled,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Haftalık program',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  for (var day = 1; day <= 7; day++)
+                    Card(
+                      color: AppColors.surface,
+                      child: ListTile(
+                        onTap: () => _editDay(day),
+                        title: Text(_dayNames[day - 1]),
+                        subtitle: Text(
+                          _days[day] == null
+                              ? 'Kapalı'
+                              : '${_time(_days[day]!.startMinute)}–${_time(_days[day]!.endMinute)}',
+                        ),
+                        trailing: const Icon(Icons.edit),
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Özel kapalı zamanlar',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _addBlock,
+                        icon: const Icon(Icons.add),
+                      ),
+                    ],
+                  ),
+                  if (_blocks.isEmpty)
+                    const Text(
+                      'Tanımlı kapalı zaman yok.',
+                      style: TextStyle(color: AppColors.textSecondary),
+                    ),
+                  for (final block in _blocks)
+                    Card(
+                      color: AppColors.surface,
+                      child: ListTile(
+                        title: Text(block.reason ?? 'Kapalı'),
+                        subtitle: Text(
+                          '${DateFormat('dd.MM.yyyy HH:mm').format(block.startAt)} – ${DateFormat('dd.MM.yyyy HH:mm').format(block.endAt)}',
+                        ),
+                        trailing: IconButton(
+                          onPressed: () => _deleteBlock(block),
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: AppColors.red,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
     );
   }

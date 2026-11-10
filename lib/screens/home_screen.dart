@@ -56,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _showCalendar = false;
   int _backupRevision = 0;
 
+  final _agendaScroll = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   List<Appointment> _searchResults = [];
   bool _isSearching = false;
@@ -72,6 +73,9 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadAppointments();
     NotificationService.instance.onAlarmFinished = _loadAppointments;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) NotificationService.instance.attachHome(this);
+    });
     _checkRequiredPermissions();
     _startWhatsAppReminderChecker();
   }
@@ -201,11 +205,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    NotificationService.instance.detachHome(this);
     _dateRequest.dispose();
     _searchRequest.dispose();
     if (NotificationService.instance.onAlarmFinished == _loadAppointments) {
       NotificationService.instance.onAlarmFinished = null;
     }
+    _agendaScroll.dispose();
     _searchController.dispose();
     _whatsappReminderTimer?.cancel();
     super.dispose();
@@ -490,43 +496,47 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final selected = await showModalBottomSheet<AppointmentStatus>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: AppColors.surface,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Randevu durumu',
-                style: TextStyle(
-                  color: AppColors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Randevu durumu',
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-            ),
-            _statusOption(
-              AppointmentStatus.planned,
-              'Planlandı',
-              Icons.event_available,
-            ),
-            _statusOption(
-              AppointmentStatus.completed,
-              'Tamamlandı',
-              Icons.check_circle,
-            ),
-            _statusOption(
-              AppointmentStatus.cancelled,
-              'İptal edildi',
-              Icons.event_busy,
-            ),
-            _statusOption(
-              AppointmentStatus.noShow,
-              'Gelmedi',
-              Icons.person_off,
-            ),
-          ],
+              _statusOption(
+                AppointmentStatus.planned,
+                'Planlandı',
+                Icons.event_available,
+              ),
+              _statusOption(
+                AppointmentStatus.completed,
+                'Tamamlandı',
+                Icons.check_circle,
+              ),
+              _statusOption(
+                AppointmentStatus.cancelled,
+                'İptal edildi',
+                Icons.event_busy,
+              ),
+              _statusOption(
+                AppointmentStatus.noShow,
+                'Gelmedi',
+                Icons.person_off,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -732,6 +742,19 @@ class _HomeScreenState extends State<HomeScreen> {
     _goToDate(_selectedDate.add(const Duration(days: 1)));
   }
 
+  Future<void> _editAppointment(Appointment appointment) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AddAppointmentScreen(appointmentToEdit: appointment),
+      ),
+    );
+    if (!mounted || result != true) return;
+    await _loadAppointments();
+    if (mounted && _isSearching) {
+      await _searchAppointments(_searchController.text);
+    }
+  }
+
   Future<void> _addAppointment() async {
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -840,6 +863,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               isSearching: _isSearching,
               onSearchPressed: () {
+                if (_agendaScroll.hasClients) _agendaScroll.jumpTo(0);
                 setState(() {
                   _isSearching = !_isSearching;
                   if (!_isSearching) {
@@ -854,263 +878,321 @@ class _HomeScreenState extends State<HomeScreen> {
               onTodayPressed: _goToToday,
             ),
 
-            const SizedBox(height: 16),
+            Expanded(
+              child: CustomScrollView(
+                controller: _agendaScroll,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
 
-            if (_isSearching)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.divider),
-                  ),
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: _searchAppointments,
-                    style: const TextStyle(color: AppColors.white),
-                    autofocus: true,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    textCapitalization: TextCapitalization.none,
-                    decoration: const InputDecoration(
-                      hintText: 'Müşterilerde Ara...',
-                      hintStyle: TextStyle(color: AppColors.textSecondary),
-                      prefixIcon: Icon(
-                        Icons.search,
-                        color: AppColors.textSecondary,
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // Date navigation
-            if (!_isSearching)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: _previousDay,
-                      icon: const Icon(
-                        Icons.chevron_left,
-                        color: AppColors.white,
-                      ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: AppColors.surface,
-                      ),
-                    ),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () =>
-                            setState(() => _showCalendar = !_showCalendar),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                dateFormat.format(_selectedDate),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: _isToday
-                                      ? AppColors.gold
-                                      : AppColors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
+                        if (_isSearching)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: AppColors.divider),
+                              ),
+                              child: TextField(
+                                controller: _searchController,
+                                onChanged: _searchAppointments,
+                                style: const TextStyle(color: AppColors.white),
+                                autofocus: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                textCapitalization: TextCapitalization.none,
+                                decoration: const InputDecoration(
+                                  hintText: 'Müşterilerde Ara...',
+                                  hintStyle: TextStyle(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  prefixIcon: Icon(
+                                    Icons.search,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 14,
+                                  ),
                                 ),
                               ),
-                              if (totalCount > 0) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  '$completedCount/$totalCount tamamlandı',
-                                  style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 12,
+                            ),
+                          ),
+
+                        // Date navigation
+                        if (!_isSearching)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              children: [
+                                IconButton(
+                                  onPressed: _previousDay,
+                                  icon: const Icon(
+                                    Icons.chevron_left,
+                                    color: AppColors.white,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: AppColors.surface,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => setState(
+                                      () => _showCalendar = !_showCalendar,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surface,
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Text(
+                                            dateFormat.format(_selectedDate),
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: _isToday
+                                                  ? AppColors.gold
+                                                  : AppColors.white,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          if (totalCount > 0) ...[
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              '$completedCount/$totalCount tamamlandı',
+                                              style: const TextStyle(
+                                                color: AppColors.textSecondary,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: _nextDay,
+                                  icon: const Icon(
+                                    Icons.chevron_right,
+                                    color: AppColors.white,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: AppColors.surface,
                                   ),
                                 ),
                               ],
-                            ],
+                            ),
+                          ),
+
+                        // Calendar (expandable)
+                        if (!_isSearching && _showCalendar)
+                          Container(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: TableCalendar(
+                              firstDay: DateTime.now().subtract(
+                                const Duration(days: 1800),
+                              ),
+                              lastDay: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                              focusedDay: _selectedDate,
+                              selectedDayPredicate: (day) =>
+                                  isSameDay(day, _selectedDate),
+                              onDaySelected: (selectedDay, focusedDay) {
+                                _goToDate(selectedDay);
+                              },
+                              locale: 'tr_TR',
+                              availableGestures:
+                                  AvailableGestures.horizontalSwipe,
+                              daysOfWeekHeight:
+                                  MediaQuery.textScalerOf(context).scale(12) *
+                                      1.5 +
+                                  4,
+                              headerStyle: const HeaderStyle(
+                                formatButtonVisible: false,
+                                titleCentered: true,
+                                titleTextStyle: TextStyle(
+                                  color: AppColors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                leftChevronIcon: Icon(
+                                  Icons.chevron_left,
+                                  color: AppColors.gold,
+                                ),
+                                rightChevronIcon: Icon(
+                                  Icons.chevron_right,
+                                  color: AppColors.gold,
+                                ),
+                              ),
+                              calendarStyle: CalendarStyle(
+                                cellMargin: const EdgeInsets.all(2),
+                                defaultTextStyle: const TextStyle(
+                                  color: AppColors.white,
+                                ),
+                                weekendTextStyle: const TextStyle(
+                                  color: AppColors.white,
+                                ),
+                                outsideTextStyle: TextStyle(
+                                  color: AppColors.textSecondary.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
+                                todayDecoration: BoxDecoration(
+                                  color: AppColors.gold.withValues(alpha: 0.3),
+                                  shape: BoxShape.circle,
+                                ),
+                                todayTextStyle: const TextStyle(
+                                  color: AppColors.gold,
+                                ),
+                                selectedDecoration: const BoxDecoration(
+                                  color: AppColors.gold,
+                                  shape: BoxShape.circle,
+                                ),
+                                selectedTextStyle: const TextStyle(
+                                  color: AppColors.background,
+                                ),
+                              ),
+                              daysOfWeekStyle: DaysOfWeekStyle(
+                                dowTextFormatter: (day, _) => const [
+                                  'Pt',
+                                  'Sa',
+                                  'Ça',
+                                  'Pe',
+                                  'Cu',
+                                  'Ct',
+                                  'Pa',
+                                ][day.weekday - 1],
+                                weekdayStyle: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                ),
+                                weekendStyle: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        if (!_isSearching && _nextCustomerToday != null)
+                          Container(
+                            margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.gold.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: AppColors.gold.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.person_pin_circle,
+                                  color: AppColors.gold,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Sıradaki: ${_nextCustomerToday!.customerName} • ${_nextCustomerToday!.appointmentTime}',
+                                    style: const TextStyle(
+                                      color: AppColors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        if (_paymentEnabled &&
+                            !_isSearching &&
+                            (_cashReport.collectedCents != 0 ||
+                                _cashReport.reversedCollectionCents != 0 ||
+                                _cashReport.refundedCents != 0 ||
+                                _cashReport.tipCents != 0 ||
+                                _cashReport.refundedTipCents != 0))
+                          Container(
+                            margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: AppColors.divider),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.payments,
+                                  color: AppColors.green,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Günün net hizmeti: ${(_cashReport.netServiceCents / 100).toStringAsFixed(2)} ₺ • Net bahşiş: ${(_cashReport.netTipCents / 100).toStringAsFixed(2)} ₺',
+                                    style: const TextStyle(
+                                      color: AppColors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+                  if (_isLoading)
+                    const SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: CircularProgressIndicator(color: AppColors.gold),
+                      ),
+                    )
+                  else if (_isSearching &&
+                      _searchController.text.trim().isEmpty)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'Aramak istediğiniz ismi yazın',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 16,
                           ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      onPressed: _nextDay,
-                      icon: const Icon(
-                        Icons.chevron_right,
-                        color: AppColors.white,
-                      ),
-                      style: IconButton.styleFrom(
-                        backgroundColor: AppColors.surface,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            // Calendar (expandable)
-            if (!_isSearching && _showCalendar)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: TableCalendar(
-                  firstDay: DateTime.now().subtract(const Duration(days: 1800)),
-                  lastDay: DateTime.now().add(const Duration(days: 365)),
-                  focusedDay: _selectedDate,
-                  selectedDayPredicate: (day) => isSameDay(day, _selectedDate),
-                  onDaySelected: (selectedDay, focusedDay) {
-                    _goToDate(selectedDay);
-                  },
-                  locale: 'tr_TR',
-                  headerStyle: const HeaderStyle(
-                    formatButtonVisible: false,
-                    titleCentered: true,
-                    titleTextStyle: TextStyle(
-                      color: AppColors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    leftChevronIcon: Icon(
-                      Icons.chevron_left,
-                      color: AppColors.gold,
-                    ),
-                    rightChevronIcon: Icon(
-                      Icons.chevron_right,
-                      color: AppColors.gold,
-                    ),
-                  ),
-                  calendarStyle: CalendarStyle(
-                    defaultTextStyle: const TextStyle(color: AppColors.white),
-                    weekendTextStyle: const TextStyle(color: AppColors.white),
-                    outsideTextStyle: TextStyle(
-                      color: AppColors.textSecondary.withValues(alpha: 0.4),
-                    ),
-                    todayDecoration: BoxDecoration(
-                      color: AppColors.gold.withValues(alpha: 0.3),
-                      shape: BoxShape.circle,
-                    ),
-                    todayTextStyle: const TextStyle(color: AppColors.gold),
-                    selectedDecoration: const BoxDecoration(
-                      color: AppColors.gold,
-                      shape: BoxShape.circle,
-                    ),
-                    selectedTextStyle: const TextStyle(
-                      color: AppColors.background,
-                    ),
-                  ),
-                  daysOfWeekStyle: const DaysOfWeekStyle(
-                    weekdayStyle: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                    ),
-                    weekendStyle: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ),
-
-            if (!_isSearching && _nextCustomerToday != null)
-              Container(
-                margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.gold.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: AppColors.gold.withValues(alpha: 0.35),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.person_pin_circle, color: AppColors.gold),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Sıradaki: ${_nextCustomerToday!.customerName} • ${_nextCustomerToday!.appointmentTime}',
-                        style: const TextStyle(
-                          color: AppColors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            if (_paymentEnabled &&
-                !_isSearching &&
-                (_cashReport.collectedCents != 0 ||
-                    _cashReport.reversedCollectionCents != 0 ||
-                    _cashReport.refundedCents != 0 ||
-                    _cashReport.tipCents != 0 ||
-                    _cashReport.refundedTipCents != 0))
-              Container(
-                margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.divider),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.payments, color: AppColors.green),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Günün net hizmeti: ${(_cashReport.netServiceCents / 100).toStringAsFixed(2)} ₺ • Net bahşiş: ${(_cashReport.netTipCents / 100).toStringAsFixed(2)} ₺',
-                        style: const TextStyle(
-                          color: AppColors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            const SizedBox(height: 8),
-
-            // Appointments list
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.gold),
                     )
-                  : (_isSearching && _searchController.text.trim().isEmpty)
-                  ? const Center(
-                      child: Text(
-                        'Aramak istediğiniz ismi yazın',
-                        style: TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 16,
-                        ),
-                      ),
-                    )
-                  : (_isSearching ? _searchResults : _appointments).isEmpty
-                  ? ListView(
-                      padding: const EdgeInsets.only(bottom: 100),
+                  else if ((_isSearching ? _searchResults : _appointments)
+                      .isEmpty)
+                    SliverList.list(
                       children: [
                         if (!_isSearching) _backupReminder(),
                         Padding(
@@ -1166,8 +1248,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 100),
+                  else
+                    SliverList.builder(
                       itemCount: _isSearching
                           ? _searchResults.length
                           : _appointments.length + 1,
@@ -1185,26 +1267,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             extentRatio: 0.5,
                             children: [
                               SlidableAction(
-                                onPressed: (_) async {
-                                  final result = await Navigator.of(context)
-                                      .push<bool>(
-                                        MaterialPageRoute(
-                                          builder: (_) => AddAppointmentScreen(
-                                            initialDate:
-                                                appointment.appointmentDate,
-                                            appointmentToEdit: appointment,
-                                          ),
-                                        ),
-                                      );
-                                  if (result == true) {
-                                    await _loadAppointments();
-                                    if (_isSearching) {
-                                      await _searchAppointments(
-                                        _searchController.text,
-                                      );
-                                    }
-                                  }
-                                },
+                                onPressed: (_) => _editAppointment(appointment),
                                 backgroundColor: AppColors.gold,
                                 foregroundColor: AppColors.background,
                                 icon: Icons.edit,
@@ -1231,6 +1294,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           child: AppointmentCard(
                             appointment: appointment,
+                            onEdit: () => _editAppointment(appointment),
+                            onStatus: () => _runAppointmentAction(
+                              () => _changeAppointmentStatus(appointment),
+                            ),
                             onComplete: () => _runAppointmentAction(
                               () => _toggleAppointmentCompletion(appointment),
                             ),
@@ -1251,6 +1318,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       },
                     ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                ],
+              ),
             ),
           ],
         ),
@@ -1267,75 +1337,36 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Row(
               children: [
-                // Customers button
                 Expanded(
-                  child: GestureDetector(
-                    onTap: () async {
+                  child: _bottomAction(
+                    label: 'Müşteriler',
+                    icon: Icons.people,
+                    color: AppColors.surfaceLight,
+                    foreground: AppColors.white,
+                    onPressed: () async {
                       await Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => const CustomersScreen(),
                         ),
                       );
-                      _loadAppointments();
-                      if (_isSearching && _searchController.text.isNotEmpty) {
-                        _searchAppointments(_searchController.text);
+                      if (!mounted) return;
+                      await _loadAppointments();
+                      if (mounted &&
+                          _isSearching &&
+                          _searchController.text.isNotEmpty) {
+                        await _searchAppointments(_searchController.text);
                       }
                     },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceLight,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.people, color: AppColors.white, size: 22),
-                          SizedBox(width: 8),
-                          Text(
-                            'Müşteriler',
-                            style: TextStyle(
-                              color: AppColors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Add appointment button
                 Expanded(
-                  child: GestureDetector(
-                    onTap: _addAppointment,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        color: AppColors.gold,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.add,
-                            color: AppColors.background,
-                            size: 22,
-                          ),
-                          SizedBox(width: 8),
-                          Text(
-                            'Randevu',
-                            style: TextStyle(
-                              color: AppColors.background,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: _bottomAction(
+                    label: 'Randevu',
+                    icon: Icons.add,
+                    color: AppColors.gold,
+                    foreground: AppColors.background,
+                    onPressed: _addAppointment,
                   ),
                 ),
               ],
@@ -1345,4 +1376,52 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Widget _bottomAction({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required Color foreground,
+    required VoidCallback onPressed,
+  }) => LayoutBuilder(
+    builder: (context, constraints) {
+      final compact =
+          constraints.maxWidth < 144 ||
+          MediaQuery.textScalerOf(context).scale(15) > 19;
+      final labelWidget = Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      );
+      return FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: foreground,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          minimumSize: const Size(0, 50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: compact
+            ? Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 22),
+                  const SizedBox(height: 2),
+                  labelWidget,
+                ],
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 22),
+                  const SizedBox(width: 8),
+                  Flexible(child: labelWidget),
+                ],
+              ),
+      );
+    },
+  );
 }

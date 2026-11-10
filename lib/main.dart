@@ -1,41 +1,16 @@
-import 'package:alarm/alarm.dart';
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/date_symbol_data_local.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'services/notification_service.dart';
-import 'services/whatsapp_service.dart';
+import 'widgets/startup_gate.dart';
 import 'screens/home_screen.dart';
 import 'utils/constants.dart';
 
 final GlobalKey<NavigatorState> globalNavigatorKey =
     GlobalKey<NavigatorState>();
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize FFI for desktop platforms (Windows/Linux)
-  if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
-
-  // Initialize Turkish locale for date formatting
-  await initializeDateFormatting('tr_TR', null);
-
-  // Bind legacy dismissals before edits, restores or native alarm callbacks.
-  await WhatsAppService.instance.prepareReminderHistory();
-
-  // Initialize notification service (only on mobile)
-  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
-    await Alarm.init();
-    await NotificationService.instance.initialize();
-  }
-
-  runApp(const BarberBookApp());
+  runApp(StartupGate(readyBuilder: (_, _) => const BarberBookApp()));
 }
 
 class BarberBookApp extends StatelessWidget {

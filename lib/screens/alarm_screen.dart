@@ -7,6 +7,7 @@ import '../models/payment.dart';
 import '../services/database_service.dart';
 import '../services/notification_service.dart';
 import '../utils/constants.dart';
+import '../utils/route_result.dart';
 import 'payment_dialog.dart';
 
 class AlarmScreen extends StatefulWidget {
@@ -83,35 +84,16 @@ class _AlarmScreenState extends State<AlarmScreen>
     _bellController.stop();
   }
 
-  Future<void> _closeAlarm() async {
-    await _acknowledge();
-    NotificationService.instance.onAlarmFinished?.call();
-    if (mounted) Navigator.of(context).pop(true);
-  }
-
-  Future<void> _complete({Payment? payment}) async {
-    final id = widget.appointment.id;
-    if (id == null || _saving) return;
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_saving) return;
     setState(() => _saving = true);
     try {
-      await _acknowledge();
-      if (payment == null) {
-        await DatabaseService.instance.completeAppointmentWithoutPayment(id);
-      } else {
-        await DatabaseService.instance.completeAppointmentWithPayment(
-          id,
-          payment,
-        );
-      }
-      NotificationService.instance.onAlarmFinished?.call();
-      if (mounted) Navigator.of(context).pop(true);
+      await action();
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'İşlem kaydedilemedi. Kayıtlı ödeme korunuyor; yeniden deneyin.',
-            ),
+            content: Text('İşlem tamamlanamadı. Yeniden deneyin.'),
           ),
         );
       }
@@ -120,7 +102,32 @@ class _AlarmScreenState extends State<AlarmScreen>
     }
   }
 
+  Future<void> _closeAlarm() async {
+    final route = ModalRoute.of(context);
+    await _acknowledge();
+    NotificationService.instance.onAlarmFinished?.call();
+    if (mounted) finishRoute(route, true);
+  }
+
+  Future<void> _complete({Payment? payment}) async {
+    final id = widget.appointment.id;
+    if (id == null) return;
+    final route = ModalRoute.of(context);
+    await _acknowledge();
+    if (payment == null) {
+      await DatabaseService.instance.completeAppointmentWithoutPayment(id);
+    } else {
+      await DatabaseService.instance.completeAppointmentWithPayment(
+        id,
+        payment,
+      );
+    }
+    NotificationService.instance.onAlarmFinished?.call();
+    if (mounted) finishRoute(route, true);
+  }
+
   Future<void> _takePayment() async {
+    final route = ModalRoute.of(context);
     await _acknowledge();
     if (!mounted) return;
     final existing = widget.appointment.id == null
@@ -128,21 +135,19 @@ class _AlarmScreenState extends State<AlarmScreen>
         : await DatabaseService.instance.getPaymentForAppointment(
             widget.appointment.id!,
           );
-    if (!mounted) return;
+    if (!mounted || route?.isCurrent != true) return;
     final payment = await showPaymentDialog(
       context,
       widget.appointment,
       existing: existing,
     );
-    if (payment != null) await _complete(payment: payment);
+    if (payment != null && mounted) await _complete(payment: payment);
   }
 
   Future<void> _callCustomer() async {
     await _acknowledge();
-    if (_customerPhone == null) return;
-    try {
-      await launchUrl(Uri.parse('tel:$_customerPhone'));
-    } catch (_) {}
+    if (!mounted || _customerPhone == null) return;
+    await launchUrl(Uri.parse('tel:$_customerPhone'));
   }
 
   @override
@@ -167,111 +172,129 @@ class _AlarmScreenState extends State<AlarmScreen>
               ),
             ),
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    AnimatedBuilder(
-                      animation: _bellAnimation,
-                      builder: (context, child) => Transform.rotate(
-                        angle: _acknowledged ? 0 : _bellAnimation.value,
-                        child: Icon(
-                          _acknowledged
-                              ? Icons.notifications_off_outlined
-                              : Icons.notifications_active,
-                          color: AppColors.gold,
-                          size: 80,
-                        ),
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: (constraints.maxHeight - 48).clamp(
+                        0,
+                        double.infinity,
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    Text(
-                      _acknowledged ? 'ALARM KAPATILDI' : 'RANDEVU VAKTİ!',
-                      style: const TextStyle(
-                        color: AppColors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 16,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        widget.appointment.appointmentTime,
-                        style: const TextStyle(
-                          color: AppColors.gold,
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      widget.appointment.customerName,
-                      style: const TextStyle(
-                        color: AppColors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (widget.appointment.hairstyleName != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.appointment.hairstyleName!,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ],
-                    const Spacer(),
-                    if (_customerPhone != null)
-                      OutlinedButton.icon(
-                        onPressed: _callCustomer,
-                        icon: const Icon(Icons.phone),
-                        label: const Text('Ara'),
-                      ),
-                    const SizedBox(height: 12),
-                    Row(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _saving ? null : _closeAlarm,
-                            icon: const Icon(Icons.close),
-                            label: const Text('Kapat'),
+                        AnimatedBuilder(
+                          animation: _bellAnimation,
+                          builder: (context, child) => Transform.rotate(
+                            angle: _acknowledged ? 0 : _bellAnimation.value,
+                            child: Icon(
+                              _acknowledged
+                                  ? Icons.notifications_off_outlined
+                                  : Icons.notifications_active,
+                              color: AppColors.gold,
+                              size: 80,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: _saving ? null : () => _complete(),
-                            icon: const Icon(Icons.check),
-                            label: const Text('Tamamlandı'),
+                        const SizedBox(height: 24),
+                        Text(
+                          _acknowledged ? 'ALARM KAPATILDI' : 'RANDEVU VAKTİ!',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
                           ),
                         ),
+                        const SizedBox(height: 28),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            widget.appointment.appointmentTime,
+                            style: const TextStyle(
+                              color: AppColors.gold,
+                              fontSize: 48,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          widget.appointment.customerName,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (widget.appointment.hairstyleName != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            widget.appointment.hairstyleName!,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        if (_customerPhone != null)
+                          OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () => _runAction(_callCustomer),
+                            icon: const Icon(Icons.phone),
+                            label: const Text('Ara'),
+                          ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _runAction(_closeAlarm),
+                              icon: const Icon(Icons.close),
+                              label: const Text('Kapat'),
+                            ),
+                            FilledButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _runAction(_complete),
+                              icon: const Icon(Icons.check),
+                              label: const Text('Tamamlandı'),
+                            ),
+                          ],
+                        ),
+                        if (widget.paymentEnabled) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.tonalIcon(
+                              onPressed: _saving
+                                  ? null
+                                  : () => _runAction(_takePayment),
+                              icon: const Icon(Icons.payments_outlined),
+                              label: const Text('Ödeme al'),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                    if (widget.paymentEnabled) ...[
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.tonalIcon(
-                          onPressed: _saving ? null : _takePayment,
-                          icon: const Icon(Icons.payments_outlined),
-                          label: const Text('Ödeme al'),
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
             ),

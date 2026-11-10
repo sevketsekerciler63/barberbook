@@ -7,12 +7,14 @@ class CustomerSearchWidget extends StatefulWidget {
   final Function(Customer) onCustomerSelected;
   final Function(String) onNewCustomerName;
   final String? initialValue;
+  final Future<List<Customer>> Function(String query)? search;
 
   const CustomerSearchWidget({
     super.key,
     required this.onCustomerSelected,
     required this.onNewCustomerName,
     this.initialValue,
+    this.search,
   });
 
   @override
@@ -25,6 +27,8 @@ class _CustomerSearchWidgetState extends State<CustomerSearchWidget> {
   List<Customer> _suggestions = [];
   bool _showSuggestions = false;
   bool _isCustomerSelected = false;
+  bool _loading = false;
+  String? _searchError;
   int _searchRevision = 0;
 
   @override
@@ -33,41 +37,78 @@ class _CustomerSearchWidgetState extends State<CustomerSearchWidget> {
     if (widget.initialValue != null) {
       _controller.text = widget.initialValue!;
     }
-    _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) {
-        setState(() => _showSuggestions = false);
-      }
-    });
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (!mounted) return;
+    if (!_focusNode.hasFocus) {
+      setState(() => _showSuggestions = false);
+    } else if (!_isCustomerSelected && _controller.text.trim().isNotEmpty) {
+      _search(_controller.text);
+    }
   }
 
   @override
   void dispose() {
+    ++_searchRevision;
+    _focusNode.removeListener(_onFocusChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   Future<void> _onSearchChanged(String query) async {
-    final revision = ++_searchRevision;
     // Clear the parent's selection immediately, even when the field is empty.
     widget.onNewCustomerName(query);
     _isCustomerSelected = false;
-    if (query.isEmpty) {
+    await _search(query);
+  }
+
+  Future<void> _search(String query) async {
+    final revision = ++_searchRevision;
+    if (query.trim().isEmpty) {
       setState(() {
         _suggestions = [];
         _showSuggestions = false;
-        _isCustomerSelected = false;
+        _loading = false;
+        _searchError = null;
       });
       return;
     }
-
-    _isCustomerSelected = false;
-    final customers = await DatabaseService.instance.searchCustomers(query);
-    if (!mounted || revision != _searchRevision) return;
     setState(() {
-      _suggestions = customers;
-      _showSuggestions = true;
+      _suggestions = [];
+      _showSuggestions = false;
+      _loading = true;
+      _searchError = null;
     });
+    try {
+      final search = widget.search ?? DatabaseService.instance.searchCustomers;
+      final customers = await search(query);
+      if (!mounted || revision != _searchRevision) return;
+      setState(() {
+        _suggestions = customers;
+        _showSuggestions = _focusNode.hasFocus;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted || revision != _searchRevision) return;
+      setState(() {
+        _loading = false;
+        _showSuggestions = false;
+        _searchError =
+            'Müşteri araması yapılamadı. Mevcut müşteri için yeniden deneyin.';
+      });
+    }
+  }
+
+  void _retry() {
+    if (_loading) return;
+    if (!_focusNode.hasFocus) {
+      _focusNode.requestFocus();
+    } else {
+      _search(_controller.text);
+    }
   }
 
   void _selectCustomer(Customer customer) {
@@ -76,6 +117,8 @@ class _CustomerSearchWidgetState extends State<CustomerSearchWidget> {
     setState(() {
       _showSuggestions = false;
       _isCustomerSelected = true;
+      _loading = false;
+      _searchError = null;
     });
     widget.onCustomerSelected(customer);
     _focusNode.unfocus();
@@ -118,6 +161,7 @@ class _CustomerSearchWidgetState extends State<CustomerSearchWidget> {
               ),
               suffixIcon: _controller.text.isNotEmpty
                   ? IconButton(
+                      tooltip: 'Müşteri seçimini temizle',
                       icon: const Icon(
                         Icons.clear,
                         color: AppColors.textSecondary,
@@ -136,6 +180,32 @@ class _CustomerSearchWidgetState extends State<CustomerSearchWidget> {
             ),
           ),
         ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LinearProgressIndicator(),
+                SizedBox(height: 4),
+                Text('Müşteriler aranıyor…'),
+              ],
+            ),
+          ),
+        if (_searchError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_searchError!),
+                TextButton(
+                  onPressed: _retry,
+                  child: const Text('Aramayı yeniden dene'),
+                ),
+              ],
+            ),
+          ),
         // Suggestions dropdown
         if (_showSuggestions && _suggestions.isNotEmpty)
           Container(
@@ -167,7 +237,9 @@ class _CustomerSearchWidgetState extends State<CustomerSearchWidget> {
                     backgroundColor: AppColors.gold.withValues(alpha: 0.15),
                     radius: 18,
                     child: Text(
-                      customer.name[0].toUpperCase(),
+                      customer.name.isEmpty
+                          ? '?'
+                          : customer.name.characters.first.toUpperCase(),
                       style: const TextStyle(
                         color: AppColors.gold,
                         fontWeight: FontWeight.bold,

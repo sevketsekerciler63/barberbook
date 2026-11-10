@@ -6,6 +6,8 @@ class AppointmentCard extends StatelessWidget {
   final Appointment appointment;
   final VoidCallback? onTap;
   final VoidCallback? onComplete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onStatus;
   final VoidCallback? onCall;
   final VoidCallback? onWhatsApp;
   final bool showDate;
@@ -16,6 +18,8 @@ class AppointmentCard extends StatelessWidget {
     required this.appointment,
     this.onTap,
     this.onComplete,
+    this.onEdit,
+    this.onStatus,
     this.onCall,
     this.onWhatsApp,
     this.showDate = false,
@@ -174,13 +178,39 @@ class AppointmentCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (onCall != null ||
+              if (onEdit != null ||
+                  onStatus != null ||
+                  onCall != null ||
                   onWhatsApp != null ||
                   (onComplete != null && !isInactive)) ...[
                 const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
+                    if (onEdit != null || onStatus != null)
+                      PopupMenuButton<String>(
+                        tooltip: 'Randevu işlemleri',
+                        icon: const Icon(Icons.more_horiz),
+                        onSelected: (value) {
+                          if (value == 'edit') onEdit?.call();
+                          if (value == 'status') onStatus?.call();
+                        },
+                        itemBuilder: (_) => [
+                          if (onEdit != null)
+                            const PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Düzenle'),
+                            ),
+                          if (onStatus != null)
+                            const PopupMenuItem(
+                              value: 'status',
+                              child: Text('Durum değiştir'),
+                            ),
+                        ],
+                      ),
                     // Phone call button
                     if (onCall != null) ...[
                       IconButton.filledTonal(
@@ -195,7 +225,6 @@ class AppointmentCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
                     ],
                     // WhatsApp button
                     if (onWhatsApp != null) ...[
@@ -211,7 +240,6 @@ class AppointmentCard extends StatelessWidget {
                           ).withValues(alpha: 0.15),
                         ),
                       ),
-                      const SizedBox(width: 8),
                     ],
                     // Hairstyle thumbnail or complete button
                     if (onComplete != null &&

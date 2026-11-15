@@ -1,127 +1,62 @@
-# BarberBook — Berber Randevu Takip Uygulaması
+# BarberBook — Berber Randevu ve Kasa Defteri
 
-Tek bir berber dükkânının müşteri, randevu ve kasa kaydını telefonunda tutması için yazılmış Flutter uygulaması. Hesap ve sunucu yok, veriler cihazdaki SQLite veritabanında kalır.
+Tek bir berber dükkânının müşteri, randevu ve kasa kaydını telefonda tutması için yazılmış bir Android uygulaması (Flutter). Kâğıt defter ve telefon rehberiyle çalışan küçük dükkânlar için: kim ne zaman gelecek, kime ne kadar veresiye yazıldı, gün sonunda kasada ne olmalı. Hesap ve sunucu yok; veriler telefondaki yerel veritabanında (SQLite) kalır.
 
-> **Bu, portföy sürümüdür.** Uygulamanın dükkâna teslim edilen sürümündeki lisans ve destek kodu (gömülü lisans anahtarı üreticisi ve destek telefonu) bu depodan çıkarıldı; geçmiş de sıfırdan başlıyor. İşlevsel ekranlar ortaktır. Android portföy sürümü `com.barberbook.portfolio` kimliğiyle **BarberBook Demo** adı altında ayrı uygulama ve ayrı veri alanı kullanır. Gerçek bir dükkânda uzun süreli kullanım geri bildirimi henüz yok.
-
-[41 saniyelik kullanım videosu](docs/demo.mp4) — gerçek Android emülatör kaydı, kurgu veriler; 2× hızlandırılmış. Müşteri geçmişi, rapor ve kısmi veresiye tahsilatı gösterilir.
-
-## Neyi çözüyor?
-
-Küçük bir berber dükkânı kâğıt defter ve telefon rehberiyle çalışıyor: kim ne zaman gelecek, kime ne kadar veresiye yazıldı, gün sonunda kasada ne olmalı. Uygulama bunları tek yerde tutuyor: randevu çakışmasını engelliyor, tamamlanan işte tahsilatı kaydediyor (nakit, kart, havale veya veresiye) ve veresiyeyi kısmi ya da tam tahsil edilebilir tutuyor.
+> **Portföy sürümü.** Dükkâna teslim edilen sürümdeki lisans ve destek kodu bu depodan çıkarıldı. Android'de `com.barberbook.portfolio` kimliğiyle **BarberBook Demo** adıyla, asıl uygulamadan ayrı kurulur.
+>
+> **Gerçek telefonda test edilmedi.** Uygulama yalnızca otomatik testlerle ve Android emülatörde denendi. Gerçek bir dükkânda kullanım geri bildirimi de henüz yok.
 
 <p>
-  <img src="docs/screenshots/gunluk-randevular.png" alt="Günlük randevu listesi: saat, müşteri, hizmet ve durum" width="240">
-  <img src="docs/screenshots/musteriler.png" alt="Müşteri listesi: arama, randevu sayısı ve bekleyen randevu" width="240">
-  <img src="docs/screenshots/tahsilat-raporu.png" alt="Tahsilat raporu: hizmet tahsilatı ve ödeme yöntemlerine göre dağılım" width="240">
+  <img src="docs/screenshots/01-takvim.png" alt="Günlük takvim: o günün randevuları, durumları ve günlük tahsilat" width="240">
+  <img src="docs/screenshots/02-randevu.png" alt="Randevu ekleme: müşteri, hizmet, tarih ve saat seçimi" width="240">
+  <img src="docs/screenshots/03-kasa.png" alt="Tahsilat raporu: hizmet tahsilatı, indirim, bahşiş, açık veresiye ve ödeme yöntemleri" width="240">
 </p>
 
-Ekran görüntülerindeki müşteriler, telefon numaraları ve tutarlar tamamen kurgusaldır (emülatörde demo veriyle alındı).
+Ekran görüntülerindeki müşteriler, telefon numaraları ve tutarlar kurgusaldır (emülatörde demo veriyle alındı). [41 saniyelik kullanım videosu](docs/demo.mp4) — emülatör kaydı, 2× hızlandırılmış.
 
-## Mevcut özellikler
+## Ne yapıyor?
 
-- Müşteri kaydı, kimliğe göre açık seçim, arama ve randevu geçmişi
-- Günlük randevu takvimi
-- Randevu durumları: planlandı, tamamlandı, iptal edildi, gelmedi
-- Hizmet seçimi, hizmet süresi ve opsiyonel fiyat alanı
-- Hizmet ekleme, düzenleme, arşivleme ve yeniden etkinleştirme
-- Hizmet süresine göre aralık çakışması kontrolü
-- Haftalık çalışma saatleri ve tarih-saat bazlı kapalı zamanlar
-- Randevunun çalışma aralığına ve kapalı zamanlara göre doğrulanması
-- Yerel SQLite veritabanı ve geriye uyumlu migration
-- Müşteri kartı silinse bile randevu geçmişinin korunması
-- Uygulama içinden SQLite verisi ve yönetilen müşteri fotoğraflarını içeren ZIP yedek oluşturma ve geri yükleme
-- Son yerel yedek dosyası tarihi ve 7 günlük uygulama içi yedek hatırlatması
-- Tamamlanan randevuda nakit, kart, FAST/havale veya veresiye tahsilat kaydı
-- Gerçek alınan tutar, indirim, bahşiş ve ödeme notu
-- Günlük/haftalık/aylık/özel aralık tahsilat raporu ve CSV dışa aktarımı
-- Açık veresiye listesi, kısmi/tam tahsilat ve fazla tahsilat koruması
-- Ödeme geçmişi, hizmet/bahşiş iadesi, nakitsiz borçtan düşme ve gerekçeli geri alma
-- Yerel alarm/hatırlatma
-- WhatsApp'ta hazır mesaj bağlantısı açma
-- Saç modeli galerisi
+- **Müşteriler:** kayıt, arama, randevu geçmişi. Müşteri kartı silinse de geçmiş randevular kalır.
+- **Randevular:** günlük takvim; durumlar (planlandı, tamamlandı, iptal, gelmedi); hizmet süresine göre çakışma kontrolü; haftalık çalışma saatleri ve kapalı zamanlar.
+- **Hizmetler:** ekleme, düzenleme, arşivleme; süre ve isteğe bağlı fiyat.
+- **Kasa:** tamamlanan randevuda nakit, kart, FAST/havale veya veresiye; indirim, bahşiş ve not. Bugün / bu hafta / bu ay / seçilen tarih aralığı raporu ve CSV dışa aktarma.
+- **Veresiye:** açık veresiye listesi, kısmi veya tam tahsilat; borçtan fazla tahsilat engellenir.
+- **Düzeltmeler:** iade, borçtan düşme ve hatalı tahsilatı geri alma, eski kaydı silmeden gerekçeli yeni bir hareketle yapılır.
+- **Yedek:** veritabanı ve müşteri fotoğraflarını içeren ZIP yedeği; geri yüklemeden önce dosya kontrol edilir ve mevcut verinin güvenlik yedeği alınır. Son yedek 7 günden eskiyse ana ekranda hatırlatma görünür (otomatik yedek almaz).
+- **Hatırlatma:** randevu için telefonda yerel alarm. WhatsApp'ta hazır mesajı açar; mesajı göndermeyi kullanıcı yapar, uygulama otomatik mesaj göndermez.
+- **Saç modeli galerisi:** 11 örnek görsel. Bu görseller yapay zekâ ile üretildi, gerçek kişiler değildir ([liste](assets/hairstyles/KAYNAK.md)).
 
-## Ürün sınırı
-
-Bu sürüm tek işletme ve yerel cihaz kullanımı içindir. Marketplace, harita, çevrim içi müşteri rezervasyonu, online ödeme alma ve çoklu işletme hesabı henüz kapsamda değildir.
+Kapsam dışı: çevrim içi rezervasyon, online ödeme, birden çok işletme, harita.
 
 ## Çalıştırma
+
+Flutter SDK gerekir (CI 3.38.5 kullanır).
 
 ```bash
 flutter pub get
 flutter run
 ```
 
-## Doğrulama
+**Hazır APK (süreli):** [GitHub Actions](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml) her başarılı çalıştırmada `barberbook-demo-debug` adlı bir ZIP üretir: telefon için ARM64, emülatör için x86_64 debug APK ve `SHA256SUMS.txt`. GitHub bu dosyaları **yalnızca 14 gün** saklar. Son çalıştırma 14 günden eskiyse indirilecek dosya görünmez; o durumda yukarıdaki komutlarla kendiniz derleyin. [İndirme ve dosya doğrulama](docs/ci.md).
 
-```bash
-dart format lib test
-flutter test
-flutter analyze
-flutter build apk --debug --target-platform android-x64 --split-per-abi
-```
+## Ne test edildi, ne edilmedi?
 
-2026-11-10: 243 test başarılı, analyzer temiz. Model, gerçek SQLite, migration, yedekleme ve kritik widget akışları test edilir. Otomatik testler, fiziksel cihaz/işletme kabulünün yerini tutmaz.
+- **Otomatik testler:** 243 test (modeller, gerçek SQLite veritabanı, şema yükseltmeleri, yedek/geri yükleme, ödeme düzeltmeleri ve önemli ekran akışları). Her gönderimde GitHub Actions'ta biçim kontrolü, `flutter analyze` ve `flutter test` çalışır.
+- **Emülatörde elle denendi:** Android 16 emülatörde ana ekran, takvim, randevu formu, yedekleme ve randevu işlemleri; dar ekran ve büyük yazı boyutuyla. [Notlar](docs/emulator-usability-2026-11-10.md).
+- **Denenmedi:** gerçek telefon ([kabul planı ve boş sonuç formu](docs/device-acceptance.md)), telefon yeniden başlatılınca ve arka planda alarmın çalması, imzalı sürüm güncellemesi, gerçek dükkânda günlük kullanım.
 
-**Telefonunda dene:** [başarılı CI çalışmasından](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml) `barberbook-demo-debug` ZIP'ini indir. İki debug APK ve `SHA256SUMS.txt` birlikte sunulur; demo asıl uygulamadan ayrı kurulur. [İndirme ve dosya doğrulama](docs/ci.md) · [Gerçek telefon kabul planı ve sonuç formu](docs/device-acceptance.md).
+## Bilinen sınırlar
 
-## Günlük kullanım
+- Yedek dosyası telefonun içinde durur; yedeği dışarı paylaşmadıysanız telefon kaybolunca veri de gider.
+- WhatsApp hatırlatma kontrolü yalnız uygulama açıkken çalışır.
+- Aynı isimli müşteriler otomatik birleştirilmez; randevu eklerken mevcut müşteriyi listeden seçmek gerekir.
 
-1. Hizmetleri ve çalışma saatlerini yönetim menüsünden düzenleyin.
-2. Randevu eklerken mevcut müşteriyi arama listesinden seçin. Yalnız isim yazmak yeni müşteri oluşturur; aynı isimli kişiler otomatik birleştirilmez.
-3. Randevu tamamlanırken hizmet bedeli, indirim, bahşiş ve ödeme yöntemini girin. Hizmet tutarı = indirim öncesi bedel − indirim; bahşiş ayrıca kaydedilir.
-4. Veresiye seçimi kasaya tahsilat yazmaz. **Yönetim → Açık veresiyeler** üzerinden kısmi veya tam tahsilat ekleyin. Aynı listeye tahsilat raporundaki cüzdan simgesinden de ulaşılır.
-5. Veresiye kaydı sonradan ödeme formuyla değiştirilmez; tahsilatlar ayrı kasa hareketleri olarak tutulur. Rapor hizmet tahsilatını ve bahşişi ayrı gösterir; güncel veresiye seçilen rapor tarihinden bağımsızdır.
-6. Yedekleme menüsünden fotoğraflı ZIP yedeği oluşturup cihaz dışına paylaşın. Geri yüklemeden önce içerik doğrulanır ve mevcut verinin güvenlik yedeği alınır. Sonrasında eski cihaz alarmları temizlenir ve geri gelen gelecekteki planlı randevular için yeniden kurulur. Alarm kurulumu başarısız olursa veriler korunur ve alarmlar için yeniden deneme sunulur.
-
-Tahsil edilmiş ödeme, randevu sonradan iptal edilse veya yeniden planlansa da gerçek tahsilat gününün kasasında kalır; durum değiştirmek para iadesi oluşturmaz. Müşteri telefonu ana ekran ve aramada her yenilemede güncel kayıttan okunur.
-
-Alınmış ödeme ve veresiye ana kaydı yeniden yazılmaz. Ödenmiş randevu tekrar planlanıp tamamlandığında ilk tahsilat korunur; yeni ödeme penceresi açılmaz. İade ve borçtan düşme, Yönetim → Ödeme geçmişi / iade üzerinden gerekçeli yeni hareketlerle kaydedilir. Hatalı düzeltme, özgün satır silinmeden geri alma hareketiyle düzeltilir. [İşlem kuralları ve testler](docs/payment-corrections.md).
-
-Yedek oluşturulunca, dosya geri yükleme kurallarıyla doğrulanır. Veritabanı ve fotoğraf değişimi eski dosyalar korunarak kalıcı bir kurtarma kaydıyla yapılır; tamamlanmamış değişim bir sonraki veritabanı açılışından önce geri alınır. Yedekleme/geri yükleme sırasında normal yeni veri bağlantıları bekletilir. Eksik fotoğraflarda işlem durur; isterseniz açık onayla yalnız dışa aktarılan kopyadaki eksik bağlantılar çıkarılır. Aynı seçim geri yükleme öncesi güvenlik yedeği için de sunulur. Cihazdaki asıl kayıtlar sırf yedek almak için değiştirilmez. Arşiv sınırı 10.000 girdi (DB/manifest dahil) ve 200 MB açılmış içeriktir; sınır aşımı başarı diye bildirilmez.
-
-Normal randevu kaydında alarm kurulamazsa uyarı ve yeniden deneme sunulur. Aynı dakikadaki randevular, native paketin aynı saniyeyi değiştirme davranışı nedeniyle dakika içinde ayrı saniyelere dağıtılır; saat alanı dakika çözünürlüğündedir.
-
-[Kesinti kurtarma tasarımı ve testleri](docs/recovery-2026-10-31.md) · [Mimari ve teknik kararlar](docs/architecture.md) · [Son düzeltmelerin doğrulaması](docs/followup-acceptance-2026-10-31.md)
-
-Yedek listesi okunamazsa hata ve yeniden deneme sunulur. Dosya seçimi/paylaşımı sırasında çift işlem engellenir; okunamayan dosya satırları yenilenebilir. [Dosya hataları ve regresyon testleri](docs/backup-file-actions-2026-11-03.md).
-
-Hatalı veresiye tahsilatı ödeme geçmişinden geri alınabilir; borç yeniden açılır. Doğru yöntemle yeniden tahsilat kaydedilebilir. Kayıt hatasında aynı işlemle yeniden deneme çift kayıt oluşturmaz. [Tahsilat düzeltme ve testler](docs/collection-corrections.md).
-
-## WhatsApp davranışı
-
-Toplu kampanya ekranı kaldırıldı; müşteri bazlı manuel mesaj ve uygulama içi randevu hatırlatması korunur. Hazır mesajın bağlantısı dış uygulamada açılır; mesajı göndermeyi kullanıcı tamamlar. Açma başarısızsa hatırlatma beklemede kalır. Başarılı bağlantı açma, mesajın gönderildiğini veya teslim edildiğini kanıtlamaz. WhatsApp hatırlatma kontrolü uygulama açıkken çalışır; yerel randevu alarmı ayrı bir özelliktir.
-
-Atla/açma seçimi belirli randevu kaydı, saat ve alıcıya bağlanır. Saat veya telefon değişirse yeni hatırlatma oluşur; eski seçimler yükseltmede korunur. İptal edilmiş/silinmiş veya bilgileri değişmiş randevunun eski penceresi mesaj açmaz. [Geçiş ve regresyon testleri](docs/reminders-2026-11-03.md).
-
-## Veri ve güvenlik notları
-
-- Uygulama verileri cihazdaki SQLite veritabanında tutulur.
-- Yeni yedekler uygulamanın yerel veritabanı alanındaki `backups` klasöründe `.zip` olarak tutulur; ZIP içinde SQLite veritabanı, fotoğraflar ve bütünlük bilgili bir manifest bulunur. Eski `.db` yedekleri fotoğraf içermeden doğrulanıp geri yüklenmeye devam eder. Geri yükleme öncesinde mevcut verinin otomatik güvenlik yedeği alınır.
-- WhatsApp özelliği otomatik mesaj göndermez; hazırlanmış mesajı WhatsApp uygulamasında açar.
-
-GitHub Actions, testlerden sonra ARM64 ve x86_64 debug APK üretir. Son başarılı çalıştırmanın **barberbook-demo-debug** artifact'ı 14 gün indirilebilir: [CI çalıştırmaları](https://github.com/sevketsekerciler63/barberbook/actions/workflows/ci.yml).
-
-## Android çıktısı
-
-```bash
-flutter build apk --debug --target-platform android-arm64,android-x64 --split-per-abi --no-pub
-```
-
-- ARM64: `build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk`
-- Emülatör x86_64: `build/app/outputs/flutter-apk/app-x86_64-debug.apk`
-- Üretim imzalı teslim ayrı bir dağıtımdır; debug APK onun yerine otomatik kurulmaz.
+Teknik ayrıntılar: [mimari](docs/architecture.md) · [ödeme düzeltmeleri](docs/payment-corrections.md) · [tahsilat düzeltme](docs/collection-corrections.md) · [kesinti kurtarma](docs/recovery-2026-10-31.md) · [yedek hatırlatma](docs/backup-reminders.md) · [yedek dosya hataları](docs/backup-file-actions-2026-11-03.md) · [WhatsApp hatırlatmaları](docs/reminders-2026-11-03.md) · [kayıt ve açılış güvenliği](docs/recoverable-forms-and-startup.md)
 
 ## Nasıl geliştirdim
 
-Bu uygulamayı yapay zekâ asistanlarıyla birlikte yazdım. Neyin yapılacağına ve neyin kapsam dışı kalacağına (çevrim içi rezervasyon, online ödeme, çoklu işletme yok) ben karar verdim, kodun çoğunu asistan yazdı. Her değişiklikten sonra testler ve analiz çalıştırıldı; fiziksel cihaz ve işletme kabulünün yerini tutmadıkları yukarıda yazıyor.
+Bu uygulamayı yapay zekâ asistanlarıyla birlikte yazdım. Neyin yapılacağına ve neyin kapsam dışı kalacağına ben karar verdim, kodun çoğunu asistan yazdı. Her değişiklikten sonra testler ve analiz çalıştırıldı; bunlar gerçek telefon ve işletme denemesinin yerini tutmaz.
 
 ## Lisans
 
 Tüm hakları saklıdır. Kaynak kod yalnızca inceleme amacıyla herkese açıktır; kullanım lisansı verilmemiştir.
-
-Yerel yedek yoksa veya son dosya 7 takvim günü eskiyse ana ekranda yedekleme bağlantısı görünür. Yedekleme ekranı son dosyanın tarihini gösterir; okunamayan veya ileri tarihli dosyalar ayrı uyarılır. Bu hatırlatma otomatik yedek/harici paylaşım yapmaz. [Davranış ve sınırlar](docs/backup-reminders.md).
-
-Randevu/hizmet kaydında çift işlem ve çıkış koruması, değişiklikleri bırakma onayı, başlangıç/veri yükleme hatalarında yeniden deneme eklendi. [Kayıt ve açılış güvenliği](docs/recoverable-forms-and-startup.md).
-
-Ana ekran, takvim, yedek satırları ve randevu kayıt düğmesi dar ekran ile büyük yazıda düzenlendi. Randevu kartındaki işlem menüsü düzenleme ve durum değişikliğini açar. [Android emülatör kontrolü](docs/emulator-usability-2026-11-10.md).
